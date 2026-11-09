@@ -22,7 +22,7 @@ def get_kafka_broker():
     except socket.gaierror:
         return "localhost:9092"
 
-def run_producer(num_events=15, delay_seconds=2.0):
+def run_producer(num_events=25, delay_seconds=1.0):
     gold_sample_path = "data/processed_sample/ideam_oro_sample.csv"
     if not os.path.exists(gold_sample_path):
         raise FileNotFoundError(f"No se encontró {gold_sample_path}. Ejecuta primero silver_to_gold.py")
@@ -89,4 +89,4 @@ def run_producer(num_events=15, delay_seconds=2.0):
     print("\n[Productor Kafka] Transmisión de telemetría finalizada.")
 
 if __name__ == "__main__":
-    run_producer(num_events=15, delay_seconds=2.0)
+    run_producer(num_events=25, delay_seconds=1.0)

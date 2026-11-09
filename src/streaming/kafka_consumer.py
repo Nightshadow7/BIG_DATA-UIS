@@ -30,7 +30,7 @@ def load_gold_thresholds():
     df["codigoestacion"] = df["codigoestacion"].astype(str)
     return df.set_index("codigoestacion").to_dict(orient="index")
 
-def run_consumer(max_messages=15):
+def run_consumer(max_messages=25):
     thresholds = load_gold_thresholds()
     broker = get_kafka_broker()
 
@@ -145,4 +145,4 @@ def run_consumer(max_messages=15):
         print(f"\n[Consumidor Kafka] Muestra de {len(processed_events)} eventos guardada en data/processed_sample/")
 
 if __name__ == "__main__":
-    run_consumer(max_messages=15)
+    run_consumer(max_messages=25)
