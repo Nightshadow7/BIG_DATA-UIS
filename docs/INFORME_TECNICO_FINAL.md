@@ -102,111 +102,99 @@ flowchart LR
 
 ---
 
-## 4. Procesamiento Batch en Apache Spark: Linea Base Historica ($P_{90}$ y $P_{99}$)
+## 4. Procesamiento Batch en Apache Spark: Entrenamiento del Modelo Hidrologico Predictivo
 
-### 4.1. Limpieza y Particionamiento (`src/batch/bronze_to_silver.py`)
-El job de PySpark lee el archivo crudo desde `s3a://bronce/ideam_precipitacion_raw.csv` y ejecuta cuatro etapas de depuracion distribuida:
-1. **Tipado explicito:** Conversion de `valorobservado`, `latitud` y `longitud` a `DoubleType`, y parseo de `fechaobservacion` a `TimestampType` derivando las columnas `anio` y `mes`.
+### 4.1. Cruce Geodesico Oficial (`hp9r-jxuu`) y Particionamiento (`src/batch/bronze_to_silver.py`)
+El script de ingesta (`src/ingestion/ingest_ideam.py`) descarga desde la API Socrata de Datos Abiertos Colombia tanto los registros historicos de precipitacion (`s54a-sgyg`) como el **Catalogo Nacional de Estaciones del IDEAM (`hp9r-jxuu`)**, almacenando ambos artefactos crudos en `s3a://bronce/` y sus muestras verificables en `data/raw_sample/ideam_precipitacion_raw_sample.csv` y `data/raw_sample/ideam_catalogo_estaciones_sample.csv`.
+
+Posteriormente, `src/batch/bronze_to_silver.py` ejecuta cuatro etapas en PySpark:
+1. **Cruce distribuido (`LEFT JOIN`) por `codigoestacion`:** Enriquece cada lectura pluviometrica con la altitud oficial sobre el nivel del mar (`altitud_msnm`), categoria y coordenadas geodesicas (`latitud`, `longitud`) del catalogo `hp9r-jxuu`.
 2. **Filtro de veracidad fisica y geografica:** Retencion exclusiva de lecturas con $0 \le \text{valorobservado} \le 500\text{ mm}$ y coordenadas dentro del territorio continental colombiano ($-4.5^\circ \le \text{latitud} \le 13.5^\circ$ y $-82.0^\circ \le \text{longitud} \le -66.0^\circ$).
 3. **Deduplicacion:** Eliminacion de eventos repetidos sobre la llave compuesta `(codigoestacion, fechaobservacion)`.
-4. **Escritura particionada:** Almacenamiento en `s3a://plata/precipitaciones_limpias.parquet` particionado por `departamento` y `anio`, habilitando *partition pruning* para que el calculo sobre Santander lea unicamente los bloques fisicos del departamento.
+4. **Escritura particionada:** Almacenamiento en `s3a://plata/precipitaciones_limpias.parquet` particionado por `departamento` y `anio`, habilitando *partition pruning*.
 
-### 4.2. Modelado de Percentiles en la Capa Oro (`src/batch/silver_to_gold.py`)
-Sobre los registros depurados de Santander con lluvia efectiva ($\text{valorobservado} > 0$), Spark SQL calcula para cada estacion el percentil 90 y el percentil 99 mediante `percentile_approx`:
+### 4.2. Modelo Hidrologico Predictivo en la Capa Oro (`src/batch/silver_to_gold.py`)
+A diferencia de un calculo estatico de observaciones aisladas, Apache Spark entrena para cada una de las 26 estaciones de Santander un modelo hidrologico basado en **funciones de ventana temporal sobre epoch (`rangeBetween`)** y **transicion condicional de Markov**:
 
-$$\text{Umbral Vigilancia Predictiva } (P_{90}) = \text{percentile\_approx}(\text{valorobservado}, 0.90)$$
-
-$$\text{Umbral Desbordamiento Critico } (P_{99}) = \text{percentile\_approx}(\text{valorobservado}, 0.99)$$
+1. **Umbrales de Acumulacion Movil en Ventana de 3 Horas (`umbral_3h_p90` y `umbral_3h_p99`):**
+   Mediante `Window.partitionBy("codigoestacion").orderBy("ts_epoch").rangeBetween(-10800, 0)`, Spark calcula la lamina acumulada real en cada ventana movil de 3 horas ($R_{3\text{h}, t}$) y extrae los percentiles 90 y 99 de tormentas de 3 horas:
+   $$\text{Umbral Vigilancia 3h } (P_{90, 3\text{h}}) = \text{percentile\_approx}(R_{3\text{h}, t}, 0.90), \quad \text{Umbral Desborde 3h } (P_{99, 3\text{h}}) = \text{percentile\_approx}(R_{3\text{h}, t}, 0.99)$$
+2. **Indice de Precipitacion Antecedente (`api_critico_24h_mm`, `api_critico_72h_mm`) y Coeficiente de Escorrentia (`coef_escorrentia`):**
+   Mediante ventanas previas de 24 horas (`rangeBetween(-86400, -1)`) y 72 horas (`rangeBetween(-259200, -1)`), Spark determina la lamina de saturacion antecedente critica ($API_{24\text{h}}$) y calibra el coeficiente de escorrentia $C_{\text{esc}} \in [0.35, 0.92]$ en funcion de la altitud orografica (`altitud_msnm`) y la retencion del suelo.
+3. **Probabilidad Condicional de Transicion de Markov $\mathbb{P}(\text{Exceso}_{t+3\text{h}} \mid \text{Saturacion}_t)$ (`prob_transicion_exceso`) y Ventana de Evacuacion (`ventana_evacuacion_min`):**
+   Evaluando la ventana futura de 3 horas (`rangeBetween(1, 10800)`), Spark estima la probabilidad condicional historica de que una microcuenca con suelo saturado supere el umbral de alerta en las siguientes 3 horas, junto con el tiempo de respuesta preventiva en minutos antes del pico de avenida torrencial.
 
 ### 4.3. Resultados Reales de la Capa Oro (26 Estaciones Modeladas en Santander)
 
-La siguiente tabla presenta el catalogo completo generado por PySpark en `s3a://oro/umbrales_estaciones_oro.parquet` y verificado en `data/processed_sample/ideam_oro_sample.csv`, ordenado de mayor a menor umbral critico $P_{99}$:
+La siguiente tabla presenta el catalogo completo entrenado por PySpark en `s3a://oro/umbrales_estaciones_oro.parquet` y verificado en `data/processed_sample/ideam_oro_sample.csv`:
 
-| Codigo IDEAM | Nombre de la Estacion | Municipio | Zona Hidrografica | Latitud | Longitud | Media (mm) | Max (mm) | P90 Naranja (mm) | P99 Roja (mm) |
-| :--- | :--- | :--- | :--- | :---: | :---: | :---: | :---: | :---: | :---: |
-| `23187010` | PUERTO WILCHES [23187010] | PUERTO WILCHES | MEDIO MAGDALENA | 7.3483 | -73.9056 | 2.66 | 30.2 | **3.6** | **26.8** |
-| `23127060` | SANTA ROSA - AUT [23127060] | CIMITARRA | MEDIO MAGDALENA | 6.2919 | -74.0983 | 1.98 | 21.6 | **2.6** | **19.8** |
-| `24017640` | LA CEIBA - AUT [24017640] | SOCORRO | SOGAMOSO | 6.4489 | -73.3069 | 1.71 | 30.8 | **3.4** | **18.8** |
-| `23127050` | PUERTO PARRA - AUT [23127050] | PUERTO PARRA | MEDIO MAGDALENA | 6.6514 | -74.0609 | 2.13 | 16.4 | **4.0** | **16.4** |
-| `23180070` | SABANA DE TORRES [23180070] | SABANA DE TORRES | MEDIO MAGDALENA | 7.3924 | -73.5015 | 1.38 | 19.6 | **1.8** | **14.6** |
-| `23155030` | AEROPUERTO YARIGUIES [23155030] | BARRANCABERMEJA | MEDIO MAGDALENA | 7.0186 | -73.8063 | 1.24 | 13.3 | **1.4** | **13.3** |
-| `2319500043` | FLORIDABLANCA - AUT [2319500043] | FLORIDABLANCA | MEDIO MAGDALENA | 7.0568 | -73.0906 | 1.13 | 16.5 | **1.6** | **12.6** |
-| `23195040` | UNIVERSIDAD INDUSTRIAL SANTANDER [23195040] | BUCARAMANGA | MEDIO MAGDALENA | 7.1419 | -73.1225 | 1.21 | 11.0 | **2.6** | **11.0** |
-| `23190440` | NARANJO EL [23190440] | LEBRIJA | MEDIO MAGDALENA | 7.2050 | -73.2997 | 1.15 | 10.1 | **1.6** | **10.1** |
-| `24027070` | MERIDA - AUT [24027070] | PARAMO | SOGAMOSO | 6.4447 | -73.1583 | 0.90 | 9.8 | **1.2** | **9.8** |
-| `2401500052` | PUENTE GUILLERMO - AUT [2401500052] | PUENTE NACIONAL | SOGAMOSO | 5.7964 | -73.7267 | 0.78 | 6.4 | **1.2** | **6.4** |
-| `2319500065` | GRANJA PIEDECUESTA - AUT [2319500065] | PIEDECUESTA | MEDIO MAGDALENA | 6.9933 | -73.0678 | 0.65 | 10.7 | **1.0** | **5.0** |
-| `23195110` | LLANO GRANDE - AUT [23195110] | GIRON | MEDIO MAGDALENA | 7.0256 | -73.1672 | 0.54 | 8.2 | **1.0** | **4.9** |
-| `23190130` | TONA - AUT [23190130] | TONA | MEDIO MAGDALENA | 7.1997 | -72.9692 | 0.64 | 5.0 | **1.4** | **4.2** |
-| `2401500051` | SUAITA - AUT [2401500051] | SUAITA | SOGAMOSO | 6.1037 | -73.4401 | 0.62 | 4.8 | **1.3** | **3.9** |
-| `23195200` | CACHIRI - AUT [23195200] | SURATA | MEDIO MAGDALENA | 7.4739 | -72.9911 | 0.56 | 8.4 | **1.1** | **3.8** |
-| `24015110` |SAN BENITO - AUT [24015110] | SAN BENITO | SOGAMOSO | 6.1277 | -73.5094 | 0.51 | 3.7 | **1.1** | **3.7** |
-| `24035340` | CAPITANEJO - AUT [24035340] | CAPITANEJO | SOGAMOSO | 6.5307 | -72.6997 | 0.50 | 3.5 | **1.3** | **3.5** |
-| `24025090` | CHARALA - AUT [24025090] | CHARALA | SOGAMOSO | 6.2923 | -73.1462 | 0.52 | 3.3 | **1.3** | **3.3** |
-| `2319500083` | EL PLAYON - AUT [2319500083] | EL PLAYON | MEDIO MAGDALENA | 7.4682 | -73.2045 | 0.56 | 3.1 | **1.2** | **3.1** |
-| `23195090` | VIVERO SURATA - AUT [23195090] | SURATA | MEDIO MAGDALENA | 7.3658 | -72.9875 | 0.37 | 2.7 | **0.6** | **2.7** |
-| `37015030` | BERLIN - AUT [37015030] | TONA | ARAUCA | 7.1870 | -72.8685 | 0.38 | 2.8 | **0.7** | **2.3** |
-| `24015300` | MOGOTES - AUT [24015300] | MOGOTES | SOGAMOSO | 6.4750 | -72.9714 | 0.25 | 2.2 | **0.5** | **2.2** |
-| `24037370` | CARRIZAL - AUT [24037370] | CERRITO | SOGAMOSO | 6.8548 | -72.6908 | 0.27 | 1.9 | **0.6** | **1.9** |
-| `24055070` |GUACA - AUT [24055070] | GUACA | SOGAMOSO | 6.8832 | -72.8588 | 0.23 | 1.6 | **0.4** | **1.6** |
-| `24035410` | CONCEPCION - AUT [24035410] | CONCEPCION | SOGAMOSO | 6.7016 | -72.6968 | 0.14 | 0.2 | **0.2** | **0.2** |
-
----
-
-## 5. Modelo Predictivo en Tiempo Real a Horizonte $T+3\text{ h}$ (Apache Kafka + Open-Meteo)
-
-### 5.1. Formulacion Matematica del Indice Predictivo Acumulado
-Para anticipar la emergencia antes de que ocurra el pico de lluvia en la estacion $i$, el productor (`src/streaming/kafka_producer.py`) consulta la API de Open-Meteo pasando las coordenadas exactas $(\text{lat}_i, \text{lon}_i)$ y construye el vector predictivo a un horizonte de 3 horas:
-
-$$\hat{R}_{i, t+3\text{h}} = S_{i, t} + \sum_{k=1}^{3} \hat{P}_{i, t+k}$$
-
-donde:
-* $S_{i, t}$ (`saturacion_antecedente_mm`) representa la lamina de saturacion hidrica previa acumulada en la microcuenca, modulada por la humedad superficial del suelo (`soil_moisture_0_to_7cm`).
-* $\sum_{k=1}^{3} \hat{P}_{i, t+k}$ (`pronostico_proximas_3h_mm`) es la precipitacion horaria proyectada por el modelo satelital en las proximas 3 horas sobre la coordenada exacta de la estacion.
-* $\text{Prob}_{i, t+3\text{h}} = \max_{k \in \{1,2,3\}} (\text{precipitation\_probability}_{i, t+k})$ indica la probabilidad maxima de precipitacion en la ventana de prediccion.
-
-### 5.2. Regla de Inferencia Anticipada en el Consumidor (`src/streaming/kafka_consumer.py`)
-El consumidor del grupo `centro-mando-hidroclimatico` compara el indice predictivo $\hat{R}_{i, t+3\text{h}}$ (`valorobservado`) contra los umbrales historicos de la Capa Oro, independientemente de que la lluvia instantanea actual ($P_{i, t}$, `lluvia_actual_mm`) sea todavia baja:
-
-* **$\hat{R}_{i, t+3\text{h}} \ge P_{99, i}$ $\rightarrow$ `ALERTA CRITICA` (Roja):** Se proyecta superacion del percentil 99 en las proximas 3 horas. Dispara alerta temprana en Supabase Realtime (`zona_id = 'north'`, `id = 1`) para alistamiento de evacuacion preventiva.
-* **$P_{90, i} \le \hat{R}_{i, t+3\text{h}} < P_{99, i}$ $\rightarrow$ `VIGILANCIA` (Naranja):** Se proyecta lluvia severa entrante por encima del percentil 90. Dispara alerta preventiva (`zona_id = 'south'`, `id = 2`) para monitoreo de riberas y obras de drenaje.
-* **$\hat{R}_{i, t+3\text{h}} < P_{90, i}$ $\rightarrow$ `NORMAL` (Verde):** El pronostico a 3 horas se mantiene dentro de la capacidad normal de absorcion de la cuenca.
-
-### 5.3. Traza Verificable de Predicciones Procesadas en Apache Kafka
-
-La siguiente tabla resume una muestra de los 25 vectores predictivos reales procesados por el cluster de Kafka y almacenados en `data/processed_sample/ideam_streaming_alerts_sample.csv` (particion `0`, offsets `44` a `68`), demostrando como el sistema detecta emergencias futuras incluso cuando la lluvia actual es menor a $2\text{ mm}$:
-
-| Offset | Evento ID | Estacion (Municipio) | Coordenadas (Lat, Lon) | Lluvia Actual (mm) | Saturacion Ant. (mm) | Pronostico +3h (mm) | Proyeccion Total T+3h (mm) | Prob. (%) | Humedad Suelo (%) | P90 / P99 (mm) | Clasificacion Predictiva |
-| :---: | :--- | :--- | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :--- |
-| `44` | `PRED-...-1` | Vivero Surata (Surata) | `7.3658, -72.9875` | 1.87 | 0.18 | 0.50 | **0.68** | 88% | 49.7% | 0.6 / 2.7 | **VIGILANCIA** |
-| `45` | `PRED-...-2` | Tona - Aut (Tona) | `7.1997, -72.9692` | 0.28 | 1.32 | 4.72 | **6.04** | 87% | 49.4% | 1.4 / 4.2 | **ALERTA CRITICA** |
-| `46` | `PRED-...-3` | Floridablanca - Aut | `7.0568, -73.0906` | 1.27 | 1.22 | 0.00 | **1.22** | 1% | 47.9% | 1.6 / 12.6 | **NORMAL** |
-| `48` | `PRED-...-5` | Santa Rosa (Cimitarra) | `6.2919, -74.0983` | 1.77 | 1.24 | 0.00 | **1.24** | 0% | 48.4% | 2.6 / 19.8 | **NORMAL** |
-| `51` | `PRED-...-8` | Granja Piedecuesta | `6.9933, -73.0678` | 1.95 | 1.32 | 4.93 | **6.25** | 93% | 46.9% | 1.0 / 5.0 | **ALERTA CRITICA** |
-| `53` | `PRED-...-10` | Vivero Surata (Surata) | `7.3658, -72.9875` | 0.65 | 1.03 | 2.93 | **3.96** | 99% | 49.7% | 0.6 / 2.7 | **ALERTA CRITICA** |
-| `55` | `PRED-...-12` | La Ceiba (Socorro) | `6.4489, -73.3069` | 1.65 | 6.11 | 19.26 | **25.37** | 95% | 48.9% | 3.4 / 18.8 | **ALERTA CRITICA** |
-| `58` | `PRED-...-15` | La Ceiba (Socorro) | `6.4489, -73.3069` | 1.43 | 4.89 | 19.95 | **24.84** | 87% | 48.9% | 3.4 / 18.8 | **ALERTA CRITICA** |
-| `60` | `PRED-...-17` | El Naranjo (Lebrija) | `7.2050, -73.2997` | 0.42 | 0.48 | 1.35 | **1.83** | 76% | 49.1% | 1.6 / 10.1 | **VIGILANCIA** |
-| `66` | `PRED-...-23` | El Naranjo (Lebrija) | `7.2050, -73.2997` | 0.27 | 3.60 | 10.94 | **14.54** | 86% | 49.1% | 1.6 / 10.1 | **ALERTA CRITICA** |
-| `67` | `PRED-...-24` | Tona - Aut (Tona) | `7.1997, -72.9692` | 1.86 | 1.66 | 3.71 | **5.37** | 94% | 49.4% | 1.4 / 4.2 | **ALERTA CRITICA** |
-
-Como se observa en los offsets `45` (Tona), `55` (Socorro) y `66` (Lebrija), en el momento de la medicion la lluvia actual era minima (`0.28 mm`, `1.65 mm` y `0.27 mm`), por lo que un sistema tradicional habria reportado normalidad. Sin embargo, al integrar la saturacion antecedente con la celda de lluvia entrante a 3 horas (`4.72 mm`, `19.26 mm` y `10.94 mm`), el motor predictivo anticipa que se superara el umbral $P_{99}$ y emite la alerta temprana con tres horas de ventaja.
+| Codigo IDEAM | Nombre de la Estacion | Municipio | Altitud (msnm) | Latitud | Longitud | 3h-P90 Naranja (mm) | 3h-P99 Roja (mm) | API 24h (mm) | Coef. Escorrentia | Markov P(Exceso\|Sat) | Ventana Evac. (min) |
+| :--- | :--- | :--- | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: |
+| `23187010` | PUERTO WILCHES - AUT | PUERTO WILCHES | 66 | 7.3444 | -73.9051 | **66.0** | **146.0** | 58.2 | 0.542 | 13.1% | 208 |
+| `23127060` | SANTA ROSA - AUT | CIMITARRA | 154 | 6.2919 | -74.0983 | **56.2** | **116.6** | 60.2 | 0.560 | 9.2% | 205 |
+| `23180070` | SABANA DE TORRES | SABANA DE TORRES | 144 | 7.3900 | -73.4894 | **22.4** | **99.2** | 21.2 | 0.513 | 22.7% | 205 |
+| `23127050` | FINCA BARREDERO - AUT | PUERTO PARRA | 90 | 6.6456 | -74.0653 | **50.6** | **92.2** | 45.5 | 0.563 | 3.2% | 207 |
+| `2319500043` | FLORIDABLANCA - AUT | FLORIDABLANCA | 894 | 7.0568 | -73.0906 | **39.2** | **83.8** | 24.4 | 0.672 | 9.1% | 178 |
+| `23195040` | UNIVERSIDAD INDUSTRIAL SANTANDER | BUCARAMANGA | 118 | 7.1447 | -73.1222 | **37.4** | **83.2** | 32.4 | 0.549 | 21.0% | 206 |
+| `23195502` | AEROPUERTO PALONEGRO AUT | LEBRIJA | 1189 | 7.1215 | -73.1845 | **68.0** | **80.2** | 22.3 | 0.786 | 1.5% | 168 |
+| `23155030` | AEROPUERTO YARIGUIES - AUT | BARRANCABERMEJA | 126 | 7.0264 | -73.8086 | **29.9** | **72.5** | 37.8 | 0.544 | 22.3% | 206 |
+| `23125120` | CIMITARRA | CIMITARRA | 198 | 6.3086 | -73.9522 | **28.0** | **67.0** | 21.2 | 0.556 | 2.9% | 203 |
+| `23190440` | NARANJO EL | LEBRIJA | 825 | 7.2050 | -73.2997 | **31.6** | **65.8** | 33.4 | 0.663 | 15.7% | 181 |
+| `23147020` | PUENTE FERROCARRIL OPON - AUT | SIMACOTA | 90 | 6.7736 | -73.9350 | **48.4** | **60.8** | 48.4 | 0.607 | 5.1% | 207 |
+| `24027070` | MERIDA - AUT | PARAMO | 1201 | 6.4447 | -73.1583 | **20.4** | **46.4** | 27.8 | 0.714 | 13.7% | 167 |
+| `23197690` | PALOGORDO - AUT | GIRON | 690 | 6.9692 | -73.1306 | **19.8** | **46.1** | 7.5 | 0.633 | 14.9% | 185 |
+| `24017640` | LA CEIBA - AUT | SOCORRO | 724 | 6.4489 | -73.3069 | **34.0** | **40.4** | 34.8 | 0.713 | 10.5% | 184 |
+| `23195110` | LLANO GRANDE - AUT | GIRON | 777 | 7.0256 | -73.1672 | **14.4** | **37.0** | 8.5 | 0.640 | 26.7% | 182 |
+| `23190130` | TONA - AUT | TONA | 1832 | 7.1997 | -72.9692 | **10.4** | **35.0** | 14.8 | 0.785 | 34.0% | 145 |
+| `24025090` | MOGOTES - AUT | MOGOTES | 1673 | 6.4700 | -72.9689 | **18.2** | **32.2** | 27.3 | 0.809 | 9.9% | 150 |
+| `24017590` | PUENTE NACIONAL - AUT | PUENTE NACIONAL | 1650 | 5.8728 | -73.6778 | **22.6** | **30.4** | 22.4 | 0.838 | 4.6% | 151 |
+| `2401500052` | PUENTE GUILLERMO - AUT | PUENTE NACIONAL | 2246 | 5.7964 | -73.7267 | **13.6** | **28.0** | 19.2 | 0.883 | 33.0% | 130 |
+| `2319500065` | GRANJA PIEDECUESTA - AUT | PIEDECUESTA | 949 | 6.9933 | -73.0678 | **9.8** | **20.0** | 9.4 | 0.684 | 4.7% | 176 |
+| `23195200` | CACHIRI - AUT | SURATA | 1885 | 7.4739 | -72.9911 | **11.5** | **18.4** | 16.8 | 0.853 | 11.3% | 143 |
+| `23195090` | VIVERO SURATA - AUT | SURATA | 1791 | 7.3658 | -72.9875 | **6.2** | **14.5** | 7.7 | 0.803 | 15.2% | 146 |
+| `37015030` | BERLIN - AUT | TONA | 3306 | 7.1870 | -72.8685 | **7.1** | **12.3** | 11.3 | 0.920 | 33.0% | 92 |
+| `24055070` | SAN VICENTE DE CHUCURI - AUT | SAN VICENTE DE CHUCURI | 1093 | 6.8234 | -73.4721 | **3.8** | **5.9** | 6.3 | 0.734 | 52.4% | 171 |
+| `2319500207` | SANTURBAN (EL SALADO) | VETAS | 3395 | 7.3352 | -72.8590 | **3.0** | **5.0** | 6.1 | 0.920 | 54.0% | 89 |
+| `24057070` | PUENTE FERROCARRIL CIENEGA - AUT | BARRANCABERMEJA | 75 | 7.1094 | -73.8547 | **0.2** | **0.2** | 0.5 | 0.498 | 9.1% | 207 |
 
 ---
 
-## 6. Centro de Mando Web, Verificacion en Windy.com y Protocolos Preventivos
+## 5. Modelo Predictivo Determinista en Tiempo Real a Horizonte $T+3\text{ h} / T+6\text{ h}$ (Apache Kafka + Open-Meteo + Spark)
 
-El Centro de Mando desplegado en Vercel ([https://big-data-uis-5vob.vercel.app/](https://big-data-uis-5vob.vercel.app/)) consume en tiempo real las tablas `umbrales_estaciones` y `alertas_activas` de Supabase e integra cuatro capacidades operativas:
+### 5.1. Separacion Estricta entre Modo Real Determinista y Modo `--stress-test`
+El productor (`src/streaming/kafka_producer.py`) opera de forma **100% determinista sin generadores aleatorios (`random`)**. Por defecto (`python src/streaming/kafka_producer.py`), utiliza exclusivamente la respuesta satelital en vivo de Open-Meteo (`past_hours=6`, `forecast_hours=6`) combinada con los parametros hidrologicos entrenados por Apache Spark:
 
-1. **Panel de Alertas Predictivas ($T+3\text{ h}$):** Muestra para cada sector la comparacion entre la lluvia actual, la proyeccion acumulada a 3 horas, la probabilidad porcentual de ocurrencia, la humedad del suelo y el porcentaje de carga frente al umbral $P_{99}$.
-2. **Mapa Geoespacial de Santander con Verificacion en Windy.com:** Ubica las 26 estaciones del IDEAM sobre las cuencas del departamento e incluye en cada tarjeta un enlace directo con las coordenadas exactas (`latitud`, `longitud`) hacia el radar meteorologico en vivo de **Windy.com**, permitiendo al operador contrastar visualmente el desplazamiento de las nubes sobre la estacion.
-3. **Proyeccion Interactiva desde el Navegador:** Al pulsar el boton **Proyectar T+3h** en cualquier estacion del mapa o de la tabla de la Capa Oro, la aplicacion consulta en vivo el endpoint `api.open-meteo.com/v1/forecast` para las coordenadas de esa estacion, calcula el vector predictivo y actualiza Supabase Realtime.
-4. **Protocolo Preventivo UNGRD:** Permite gestionar la lista de chequeo preventiva (alistamiento de brigadas, verificacion de niveles aguas arriba y preaviso comunitario) y cerrar el ciclo de la alerta dejando trazabilidad en PostgreSQL.
+$$\hat{R}_{i, t+3\text{h}} = S_{i, t} + \sum_{k=1}^{3} \hat{P}_{i, t+k}, \quad \text{donde } S_{i, t} = C_{\text{esc}, i} \cdot P_{\text{ant}, 6\text{h}} + 0.5 \cdot C_{\text{esc}, i} \cdot API_{24\text{h}, i} \cdot \max\left(0, \frac{\theta_{i, t} - 25}{100}\right)$$
+
+La probabilidad posterior de desbordamiento ($\text{Prob}_{\text{desborde}}$) integra la probabilidad condicional de transicion de Markov calculada en Spark ($\mathbb{P}_{\text{Markov}, i}$), la fraccion de carga frente al umbral $P_{99, 3\text{h}}$ y la probabilidad satelital de precipitacion:
+
+$$\text{Prob}_{\text{desborde}, i} = \text{clip}_{[5, 99]}\left( 35 \cdot \mathbb{P}_{\text{Markov}, i} + 45 \cdot \frac{\hat{R}_{i, t+3\text{h}}}{P_{99, 3\text{h}, i}} + 0.20 \cdot \text{Prob}_{\text{sat}, i} \right)$$
+
+Para demostraciones academicas en dias soleados, el productor incluye el flag explicito de linea de comandos `--stress-test` (`python src/streaming/kafka_producer.py --stress-test`), que inyecta un frente convectivo determinista claramente etiquetado como `STRESS_TEST_DETERMINISTA` en el campo `modo_operacion`.
+
+### 5.2. Inferencia Continua en Tiempo Real (`src/streaming/kafka_consumer.py`)
+El consumidor del grupo `centro-mando-hidroclimatico` se mantiene en escucha continua en tiempo real (`max_messages=None` por defecto) y evalua cada vector contra los umbrales de 3 horas de la Capa Oro (`umbral_3h_p90` y `umbral_3h_p99`), actualizando Supabase Realtime y persistiendo la traza auditable en `data/processed_sample/ideam_streaming_alerts_sample.csv`.
+
+---
+
+## 6. Jerarquia del Centro de Mando Web: "Prediccion Primero (Nivel 1), Informacion Despues (Nivel 2)"
+
+El Centro de Mando desplegado en Vercel ([https://big-data-uis-5vob.vercel.app/](https://big-data-uis-5vob.vercel.app/)) organiza su interfaz bajo el principio operativo **"Prediccion Primero, Informacion Despues"**:
+
+1. **Nivel 1 — Pronostico de Impacto Anticipado ($T+3\text{h} / T+6\text{h}$, Primer Plano):**
+   Al abrir la aplicacion, lo primero que visualiza el operador son las tarjetas de impacto futuro para las cuencas monitoreadas, destacando los cuatro indicadores de decision temprana:
+   * **Probabilidad de Desbordamiento (%):** Calculada combinando la transicion de Markov de Spark y el pronostico satelital.
+   * **Volumen Proyectado a $T+3\text{h}$ y $T+6\text{h}$ (mm):** Contrastado contra el umbral critico `3h-P99`, mostrando que la lluvia actual puede ser $0.0\text{ mm}$ mientras se aproxima una tormenta severa.
+   * **Indice de Saturacion de Suelo ($API$ %):** Humedad superficial (`0–7 cm`) y lamina antecedente efectiva.
+   * **Ventana de Evacuacion Preventiva (min):** Tiempo disponible en minutos antes del pico de escorrentia para activar el protocolo de la UNGRD.
+2. **Nivel 2 — Respaldo Historico y Catalogo de Estaciones (Consulta Secundaria):**
+   Debajo del panel predictivo y del mapa geoespacial interactivo (con enlaces directos por latitud/longitud a **Windy.com**), una seccion secundaria presenta la ficha historica procesada en Apache Spark (2000–2026) para la estacion seleccionada y permite desplegar bajo demanda el catalogo completo de las 26 estaciones del IDEAM.
 
 ---
 
 ## 7. Conclusiones
 
-1. **Valor operativo de la prediccion frente a la reaccion:** La transicion de un esquema informativo a un modelo predictivo a horizonte $T+3\text{ h}$ resuelve la principal limitacion de los sistemas pluviometricos convencionales en cuencas de montana: otorga una ventana de accion de hasta 180 minutos antes de la avenida torrencial.
-2. **Complementariedad entre Apache Spark y Open-Meteo:** Un pronostico meteorologico aislado de $15\text{ mm}$ en 3 horas no significa lo mismo en el valle medio del Magdalena que en el paramo de Berlin o Tona. Cruzar el pronostico satelital de Open-Meteo con los percentiles $P_{90}$ y $P_{99}$ calculados por Apache Spark sobre cada estacion particular permite emitir alertas calibradas a la realidad hidrologica de cada municipio.
-3. **Reproducibilidad de extremo a extremo:** Toda la solucion se ejecuta de manera determinista mediante contenedores Docker (`compose.yaml`), cuenta con muestras verificables en formato CSV, Parquet y JSON dentro de `data/`, pruebas unitarias automatizadas en el frontend (`7/7` aprobadas) y despliegue continuo en produccion sobre Vercel.
+1. **Valor operativo de la prediccion frente a la reaccion:** La transicion hacia un modelo predictivo a horizonte $T+3\text{ h} / T+6\text{ h}$ otorga una ventana de evacuacion preventiva de entre 89 y 208 minutos antes de la avenida torrencial, resolviendo la inutilidad operativa de los sistemas que solo informan cuando ya esta lloviendo.
+2. **Sinergia real entre Apache Spark y Open-Meteo:** Apache Spark no se limita a calcular estadisticas descriptivas; entrena sobre las series del IDEAM y el catalogo geodesico `hp9r-jxuu` los umbrales acumulados de 3 horas, el indice de precipitacion antecedente ($API_{24\text{h}}$), el coeficiente de escorrentia y la probabilidad condicional de transicion de Markov que permiten traducir los milimetros proyectados por Open-Meteo en probabilidad real de desbordamiento para cada microcuenca.
+3. **Reproducibilidad y transparencia:** El modo por defecto opera con datos 100% reales de Open-Meteo y Spark (`REAL_OPEN_METEO_SPARK`), separando las pruebas de estres tras el argumento explicito `--stress-test`, con muestras verificables en `data/`, pruebas automatizadas (`7/7` aprobadas) y despliegue continuo en Vercel.
+

@@ -29,6 +29,7 @@ export default function App() {
   const [activeProtocolAlert, setActiveProtocolAlert] = useState(null);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [isSubmittingProtocol, setIsSubmittingProtocol] = useState(false);
+  const [isCatalogExpanded, setIsCatalogExpanded] = useState(false);
   const [toasts, setToasts] = useState([]);
 
   // Adición de Toast con auto-cierre
@@ -107,7 +108,6 @@ export default function App() {
           const newAlert = payload.new;
           if (!newAlert) return;
 
-          // Actualizar estado de alertas
           setAlerts((currentAlerts) => {
             const index = currentAlerts.findIndex((a) => a.id === newAlert.id);
             if (index !== -1) {
@@ -118,7 +118,6 @@ export default function App() {
             return [newAlert, ...currentAlerts];
           });
 
-          // Notificación Toast reactiva
           const isReviewed = newAlert.revisado;
           const isCritical = newAlert.color_alerta === 'red';
 
@@ -153,25 +152,34 @@ export default function App() {
   // Seleccionar alerta desde la barra lateral y enfocar estación en el mapa
   const handleSelectAlert = (alert) => {
     setSelectedAlertId(alert.id);
-    const station = stations.find((s) => s.codigoestacion === alert.codigoestacion);
+    const station = stations.find((s) => String(s.codigoestacion) === String(alert.codigoestacion));
     if (station) {
       setSelectedStation(station);
     }
   };
 
-  // Proyección Predictiva T+3h (Open-Meteo + Kafka)
+  // Inspeccionar Nivel 2 (Respaldo histórico de la estación seleccionada)
+  const handleInspectLevel2 = (alert) => {
+    handleSelectAlert(alert);
+    const el = document.getElementById('nivel-2-respaldo');
+    if (el) {
+      el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
+  };
+
+  // Proyección Predictiva T+3h (Open-Meteo + Modelo Spark)
   const handleSimulatePeak = async (stationCode, forceP99 = true) => {
-    const station = stations.find((s) => s.codigoestacion === stationCode);
+    const station = stations.find((s) => String(s.codigoestacion) === String(stationCode));
     if (!station) return;
 
     try {
-      const result = await simulateKafkaPeak(stationCode, forceP99);
+      const result = await simulateKafkaPeak(stationCode, forceP99, station);
       if (result) {
         setSelectedStation(station);
         setSelectedAlertId(result.alertId);
         addToast({
           title: 'Vector Predictivo T+3h Calculado',
-          description: `Estación ${station.nombreestacion} [Lat ${station.latitud.toFixed(3)}, Lon ${station.longitud.toFixed(3)}] proyecta ${result.payload.precipitacion_registrada} mm en 3h superando ${forceP99 ? 'P99' : 'P90'}.`,
+          description: `Estación ${station.nombreestacion} [Lat ${station.latitud.toFixed(3)}, Lon ${station.longitud.toFixed(3)}] proyecta ${result.payload.precipitacion_registrada} mm en 3h (Evac: ${result.payload.ventana_evacuacion_min} min).`,
           type: forceP99 ? 'danger' : 'warning',
           zona: result.payload.zona_id,
         });
@@ -221,7 +229,7 @@ export default function App() {
   return (
     <div className="min-h-screen flex flex-col bg-[#030b14] text-slate-100 selection:bg-cyan-500/30 selection:text-cyan-200">
       
-      {/* 1. Navbar con KPIs, WebSocket Status y Acciones */}
+      {/* 1. Navbar con KPIs de Predicción Anticipada */}
       <Navbar
         kpis={kpis}
         onRefresh={loadData}
@@ -230,26 +238,26 @@ export default function App() {
         isLiveDb={isLiveSupabaseConfigured()}
       />
 
-      {/* 2. Cuerpo Principal del Centro de Mando */}
+      {/* 2. Cuerpo Principal: Jerarquía "Predicción Primero (Nivel 1), Información Después (Nivel 2)" */}
       <main className="flex-1 w-full max-w-[1600px] mx-auto p-4 sm:p-6 lg:p-8 flex flex-col gap-6">
         
-        {/* Banner Superior de Estado de Misión Crítica Predictiva */}
+        {/* Banner Superior de Inferencia Predictiva */}
         <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-3 p-4 rounded-2xl bg-gradient-to-r from-[#0c2336]/90 via-[#0a1b2a]/90 to-[#081522]/90 border border-cyan-500/25 shadow-xl">
           <div className="flex items-center gap-3">
             <div className="p-2 rounded-xl bg-cyan-500/20 text-cyan-300 border border-cyan-400/30">
               <Radio className="w-5 h-5 text-cyan-400 animate-pulse" />
             </div>
             <div>
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-2 flex-wrap">
                 <span className="text-xs font-mono font-bold tracking-wider text-cyan-300 uppercase">
-                  SISTEMA PREDICTIVO DE ALERTA TEMPRANA · HORIZONTE T+3H Y T+6H
+                  PREDICCIÓN PRIMERO · HORIZONTE ANTICIPADO T+3H Y T+6H
                 </span>
                 <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-emerald-950/80 text-emerald-400 border border-emerald-500/40">
-                  OPEN-METEO + SPARK P90/P99
+                  SPARK MARKOV + OPEN-METEO API
                 </span>
               </div>
               <p className="text-xs text-slate-300">
-                Predicción anticipada de desbordamientos combinando saturación antecedente (Apache Spark) con pronóstico satelital horario por coordenadas GPS exactas (Open-Meteo API + Apache Kafka).
+                Nivel 1 proyecta probabilidad de desborde, volumen acumulado en 3h/6h, saturación antecedente del suelo (API) y ventana de evacuación preventiva. Nivel 2 despliega el respaldo histórico 2000–2026 de la estación seleccionada.
               </p>
             </div>
           </div>
@@ -257,14 +265,13 @@ export default function App() {
           <div className="flex items-center gap-2 text-xs font-mono text-slate-400">
             <span>Horizonte: <strong className="text-cyan-300">T+3h / T+6h</strong></span>
             <span>·</span>
-            <span>Inferencia Kafka: <strong className="text-slate-200">14 ms</strong></span>
+            <span>Inferencia Kafka: <strong className="text-slate-200">Continua</strong></span>
           </div>
         </div>
 
-        {/* Zona Central: Sidebar de Alertas + Mapa Geoespacial de Santander */}
+        {/* NIVEL 1: Tarjetas de Pronóstico de Impacto Anticipado + Mapa Geoespacial Predictivo */}
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
           
-          {/* Panel Izquierdo: Alertas Activas (4 columnas en pantallas grandes) */}
           <div className="lg:col-span-4 w-full">
             <AlertsSidebar
               alerts={alerts}
@@ -272,10 +279,10 @@ export default function App() {
               selectedAlertId={selectedAlertId}
               onSelectAlert={handleSelectAlert}
               onOpenProtocol={(alert) => setActiveProtocolAlert(alert)}
+              onInspectLevel2={handleInspectLevel2}
             />
           </div>
 
-          {/* Panel Derecho: Mapa Geoespacial Topográfico e Hidroclimático (8 columnas) */}
           <div className="lg:col-span-8 w-full">
             <GeospatialMap
               stations={stations}
@@ -288,18 +295,19 @@ export default function App() {
 
         </div>
 
-        {/* Zona Inferior: Tabla de Capa Oro Parquet Spark */}
+        {/* NIVEL 2: Ficha de Respaldo Histórico de la Estación Seleccionada + Catálogo Desplegable */}
         <div className="w-full">
           <GoldLayerTable
             stations={stations}
             onSelectStation={(st) => {
               setSelectedStation(st);
-              // Si la estación tiene alerta, seleccionarla también
-              const matchingAlert = alerts.find((a) => a.codigoestacion === st.codigoestacion);
+              const matchingAlert = alerts.find((a) => String(a.codigoestacion) === String(st.codigoestacion));
               if (matchingAlert) setSelectedAlertId(matchingAlert.id);
             }}
             onSimulatePeak={handleSimulatePeak}
             selectedStation={selectedStation}
+            isCatalogExpanded={isCatalogExpanded}
+            onToggleCatalog={() => setIsCatalogExpanded((prev) => !prev)}
           />
         </div>
 

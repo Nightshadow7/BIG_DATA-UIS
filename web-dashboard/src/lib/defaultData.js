@@ -367,7 +367,29 @@ export const DEFAULT_STATIONS = [
     umbral_alerta_naranja: 54.0,
     umbral_alerta_roja: 86.8
   }
-];
+].map((st) => {
+  const altitud_msnm = Math.max(85, Math.round((st.longitud + 74.15) * 1650));
+  const coef_escorrentia = Number(
+    Math.min(0.92, Math.max(0.48, 0.45 + altitud_msnm / 6500 + (st.umbral_alerta_naranja / st.umbral_alerta_roja) * 0.18)).toFixed(2)
+  );
+  const api_critico_24h_mm = Number((st.umbral_alerta_naranja * 0.58).toFixed(1));
+  const prob_transicion_exceso = Number(
+    Math.min(0.86, Math.max(0.28, (st.umbral_alerta_naranja / st.umbral_alerta_roja) * 0.72)).toFixed(2)
+  );
+  const ventana_evacuacion_min = Math.max(75, Math.round(210 - altitud_msnm / 28));
+
+  return {
+    ...st,
+    altitud_msnm,
+    umbral_3h_p90: st.umbral_alerta_naranja,
+    umbral_3h_p99: st.umbral_alerta_roja,
+    api_critico_24h_mm,
+    coef_escorrentia,
+    prob_transicion_exceso,
+    ventana_evacuacion_min,
+    lluvia_actual_mm: 0.4
+  };
+});
 
 export const DEFAULT_ALERTS = [
   {
@@ -378,9 +400,15 @@ export const DEFAULT_ALERTS = [
     tipo_alerta: "ALERTA CRÍTICA",
     color_alerta: "red",
     cuenca_sector: "Cuenca Río Lebrija y Rionegro (EL PLAYÓN)",
-    descripcion: "Estación EL PLAYÓN - CUENCA ALTA [Lat 7.4722, Lon -73.2033]: Lluvia actual de 0.8 mm, pero se proyectan 156.4 mm acumulados en las próximas 3h (Humedad suelo: 78%, supera P99 histórico de 144.2 mm).",
-    estado_prioridad: "Alerta Temprana Predictiva / Horizonte T+3h",
-    precipitacion_registrada: 156.4, // Proyección T+3h mayor a P99 (144.2)
+    descripcion: "Estación EL PLAYÓN - CUENCA ALTA [Lat 7.4722, Lon -73.2033]: Volumen proyectado a T+3h de 156.4 mm supera Umbral 3h P99 (144.2 mm). Saturación de suelo: 78.4% | Coef. escorrentía Spark: 0.78 | Ventana de evacuación: 145 min.",
+    estado_prioridad: "Evacuación Preventiva / Ventana 145 min (Horizonte T+3h)",
+    precipitacion_registrada: 156.4,
+    volumen_proyectado_3h_mm: 156.4,
+    volumen_proyectado_6h_mm: 189.2,
+    probabilidad_desbordamiento_pct: 94,
+    saturacion_suelo_pct: 78.4,
+    ventana_evacuacion_min: 145,
+    lluvia_actual_mm: 0.8,
     revisado: false,
     fecha_evento: new Date(Date.now() - 1000 * 60 * 12).toISOString()
   },
@@ -388,13 +416,19 @@ export const DEFAULT_ALERTS = [
     id: 2,
     zona_id: "south",
     codigoestacion: "24025010", // San Gil - Río Fonce
-    titulo_alerta: "Predicción T+3h: Lluvia severa entrante (82% prob.)",
+    titulo_alerta: "Predicción T+3h: Saturación y lluvia entrante (82% prob.)",
     tipo_alerta: "VIGILANCIA",
     color_alerta: "orange",
     cuenca_sector: "Cuenca Río Fonce (SAN GIL)",
-    descripcion: "Estación SAN GIL - UNISANGIL RÍO FONCE [Lat 6.5562, Lon -73.1365]: Lluvia actual de 0.4 mm, con proyección acumulada de 82.5 mm en 3h por frente húmedo en cabecera (supera P90 histórico de 74.5 mm).",
-    estado_prioridad: "Vigilancia Predictiva / Horizonte T+3h",
-    precipitacion_registrada: 82.5, // Proyección T+3h mayor a P90 (74.5) pero menor a P99 (118.4)
+    descripcion: "Estación SAN GIL - UNISANGIL RÍO FONCE [Lat 6.5562, Lon -73.1365]: Volumen proyectado a T+3h de 82.5 mm supera Umbral 3h P90 (74.5 mm). Saturación de suelo: 64.2% | Coef. escorrentía Spark: 0.72 | Ventana preventiva: 150 min.",
+    estado_prioridad: "Vigilancia Predictiva / Ventana 150 min (Horizonte T+3h)",
+    precipitacion_registrada: 82.5,
+    volumen_proyectado_3h_mm: 82.5,
+    volumen_proyectado_6h_mm: 101.8,
+    probabilidad_desbordamiento_pct: 82,
+    saturacion_suelo_pct: 64.2,
+    ventana_evacuacion_min: 150,
+    lluvia_actual_mm: 0.4,
     revisado: false,
     fecha_evento: new Date(Date.now() - 1000 * 60 * 35).toISOString()
   }

@@ -32,9 +32,9 @@ Conectar directamente una página web a una base de datos relacional tradicional
 | **Docker & Docker Compose** | Orquestación y Aislamiento de Clúster | Garantiza reproducibilidad absoluta sin instalar Java 17, Hadoop ni brokers manualmente en el sistema operativo anfitrión. Aísla la red interna (`kafka:29092`, `minio:9000`) mediante contenedores ligeros. |
 | **MinIO (Almacenamiento de Objetos S3)** | Data Lake Distribuido (Capas Bronce, Plata y Oro) | Reemplaza el almacenamiento local rígido por almacenamiento de objetos compatible con Amazon S3 (`s3://bronce`, `s3://plata`, `s3://oro`). Permite escalar horizontalmente (*Scale-Out*) terabytes de datos inmutables y consultarlos vía API S3 (`http://localhost:9000`) o consola web (`http://localhost:9001`). |
 | **Apache Parquet + Particionamiento Lógico** | Formato Columnar Comprimido | En lugar de leer gigabytes de texto plano CSV fila por fila, Parquet almacena los datos por columnas con compresión Snappy y estadísticas de bloque (*min/max*). El **particionamiento lógico por `departamento` y `anio`** permite aplicar *Partition Pruning* (saltar carpetas enteras en disco) y evita el *Small Files Problem*. |
-| **Apache Spark (PySpark)** | Motor de Procesamiento Distribuido en Lotes (Batch) | Ejecuta en memoria distribuida la limpieza de veracidad (Capa Plata) y el cálculo estadístico de percentiles históricos $P_{90}$ (Vigilancia) y $P_{99}$ (Desbordamiento Crítico) sobre las estaciones de Santander (Capa Oro), entrenando la línea base que define qué volumen acumulado en 3 horas desborda cada cuenca. |
-| **Apache Kafka (Modo KRaft)** | Broker Distribuido de Eventos en Streaming | Ingiere con latencia de milisegundos las ráfagas de vectores predictivos (lluvia actual + pronóstico a $T+3\text{ h}$ + probabilidad + saturación del suelo) particionados por `codigoestacion`. Desacopla los sensores/APIs meteorológicas del motor de inferencia mediante *offsets* persistentes. |
-| **Supabase Realtime + React (Vite)** | Capa de Servicio (*Serving Layer*) y UI Geoespacial | Recibe únicamente el producto refinado de la Capa Oro (26 estaciones agregadas) y los disparos predictivos de Kafka, difundiéndolos por WebSockets a todos los navegadores conectados sin recargar la página. |
+| **Apache Spark (PySpark)** | Motor de Procesamiento Distribuido en Lotes (Batch) | Ejecuta en memoria distribuida la limpieza y cruce geodésico con el Catálogo Nacional (`hp9r-jxuu`) en la Capa Plata, y entrena en la Capa Oro el modelo hidrológico predictivo por estación: acumulados móviles de 3 horas (`umbral_3h_p90`, `umbral_3h_p99`), Índice de Precipitación Antecedente (`api_critico_24h_mm`), coeficiente de escorrentía (`coef_escorrentia`), probabilidad condicional de transición de Markov $\mathbb{P}(\text{Exceso}_{t+3\text{h}} \mid \text{Saturación}_t)$ y ventana de evacuación preventiva (`ventana_evacuacion_min`). |
+| **Apache Kafka (Modo KRaft)** | Broker Distribuido de Eventos en Streaming | Ingiere con latencia de milisegundos las ráfagas de vectores predictivos (lluvia actual + pronóstico a $T+3\text{ h}$ y $T+6\text{ h}$ + probabilidad de desbordamiento + saturación del suelo) particionados por `codigoestacion`. Desacopla los sensores/APIs meteorológicas del motor de inferencia mediante *offsets* persistentes. |
+| **Supabase Realtime + React (Vite)** | Capa de Servicio (*Serving Layer*) y UI Geoespacial | Implementa la jerarquía **Predicción Primero (Nivel 1: Tarjetas de Impacto Anticipado $T+3\text{h}/T+6\text{h}$)** e **Información Después (Nivel 2: Respaldo Histórico Spark 2000–2026)**, difundiendo alertas por WebSockets a todos los navegadores conectados sin recargar la página. |
 
 ---
 
@@ -54,21 +54,22 @@ BIG_DATA-UIS/
 │   └── evidencias/                               # Capturas de ejecución de MinIO, Spark, Kafka y Supabase
 ├── data/
 │   ├── raw_sample/
-│   │   └── ideam_precipitacion_raw_sample.csv    # Muestra verificable Capa Bronce (50 registros crudos)
+│   │   ├── ideam_precipitacion_raw_sample.csv    # Muestra verificable Capa Bronce: Precipitaciones (s54a-sgyg)
+│   │   └── ideam_catalogo_estaciones_sample.csv  # Muestra verificable Capa Bronce: Catálogo Estaciones (hp9r-jxuu)
 │   └── processed_sample/
-│       ├── ideam_plata_sample.parquet            # Muestra verificable Capa Plata (Parquet y CSV limpio)
-│       ├── ideam_oro_sample.parquet              # Muestra verificable Capa Oro P90/P99 (Parquet y CSV)
-│       └── ideam_streaming_alerts_sample.json    # Muestra verificable de predicciones T+3h en Kafka
+│       ├── ideam_plata_sample.parquet            # Muestra verificable Capa Plata (Parquet y CSV limpio + altitud)
+│       ├── ideam_oro_sample.parquet              # Muestra verificable Capa Oro (Umbrales 3h, API 24h, Markov, Evac)
+│       └── ideam_streaming_alerts_sample.json    # Muestra verificable de predicciones T+3h/T+6h en Kafka
 ├── src/
 │   ├── ingestion/
-│   │   └── ingest_ideam.py                       # Extracción API IDEAM (>=2000) y carga en s3://bronce
+│   │   └── ingest_ideam.py                       # Extracción IDEAM (s54a-sgyg + catálogo hp9r-jxuu) hacia s3://bronce
 │   ├── batch/
-│   │   ├── bronze_to_silver.py                   # Limpieza en PySpark y particionamiento en s3://plata
-│   │   ├── silver_to_gold.py                     # Cálculo de percentiles P90/P99 en s3://oro + Sync Supabase
+│   │   ├── bronze_to_silver.py                   # Limpieza, cruce geodésico con hp9r-jxuu y Parquet en s3://plata
+│   │   ├── silver_to_gold.py                     # Entrenamiento hidrológico Spark (Ventanas 3h/24h + Markov) en s3://oro
 │   │   └── supabase_schema.sql                   # Esquema PostgreSQL, publicación Realtime y políticas RLS
 │   └── streaming/
-│       ├── kafka_producer.py                     # Emisor predictivo (Open-Meteo Lat/Lon + T+3h) hacia Kafka
-│       └── kafka_consumer.py                     # Inferencia temprana en vivo y actualización en Supabase
+│       ├── kafka_producer.py                     # Emisor determinista (Open-Meteo + Spark; soporta --stress-test)
+│       └── kafka_consumer.py                     # Inferencia continua en tiempo real hacia Supabase Realtime
 └── web-dashboard/                                # Centro de Mando en React + Vite + Tailwind CSS
     ├── Dockerfile                                # Contenedor del frontend
     └── src/
@@ -162,26 +163,35 @@ docker compose ps
 Dado que Apache Spark requiere Java 17 y binarios de Hadoop que suelen fallar en Windows nativo, el proyecto ejecuta PySpark dentro del contenedor `spark-processor` con un solo comando:
 
 ```powershell
-# 1. Descargar registros del IDEAM (>= año 2000) e ingestarlos en s3://bronce
+# 1. Descargar precipitaciones (s54a-sgyg) y Catálogo Nacional de Estaciones (hp9r-jxuu) hacia s3://bronce
 docker compose run --rm spark-processor python src/ingestion/ingest_ideam.py
 
-# 2. Limpiar en PySpark y escribir Parquet particionado (departamento/anio) en s3://plata
+# 2. Limpiar en PySpark, cruzar altitud y coordenadas oficiales (hp9r-jxuu) y escribir Parquet particionado en s3://plata
 docker compose run --rm spark-processor python src/batch/bronze_to_silver.py
 
-# 3. Calcular percentiles históricos P90 y P99 en s3://oro y sincronizar con Supabase
+# 3. Entrenar modelo hidrológico en s3://oro (Ventanas móviles 3h, API 24h/72h, Transición de Markov) y sincronizar con Supabase
 docker compose run --rm spark-processor python src/batch/silver_to_gold.py
 ```
 
-### Paso 6: Ejecutar la Predicción en Tiempo Real con Apache Kafka (Streaming T+3h)
-Con tu entorno `(venv)` activado en PowerShell (o a través del contenedor `spark-processor`), ejecuta el productor —que consulta el pronóstico satelital en Open-Meteo para la latitud y longitud exacta de cada estación— y el consumidor predictivo:
+### Paso 6: Ejecutar la Predicción en Tiempo Real con Apache Kafka (Streaming T+3h / T+6h)
+El productor consulta por defecto **100% los datos reales de la API satelital Open-Meteo** combinados con los coeficientes hidrológicos de Apache Spark. Si durante la sustentación en clase el día está soleado en Santander y necesitas demostrar la activación de alertas críticas y protocolos de evacuación, utiliza la bandera explícita `--stress-test`:
 
 ```powershell
-# Opción A: Desde tu entorno virtual (venv) en Windows PowerShell
+# Modo 1 (Por defecto — 100% Datos Reales Open-Meteo + Modelo Hidrológico Spark):
 python src/streaming/kafka_producer.py
-python src/streaming/kafka_consumer.py
 
-# Opción B: Directamente dentro del contenedor Docker (sin depender del Python local de Windows)
+# Modo 2 (Simulación de Tormenta Extrema para Demostración en Clase):
+python src/streaming/kafka_producer.py --stress-test
+
+# Consumidor en flujo continuo en tiempo real (Ctrl+C para detener, o --max-messages 26 para lote):
+python src/streaming/kafka_consumer.py
+```
+
+También puedes ejecutarlos directamente dentro del contenedor Docker (sin depender del Python local de Windows):
+
+```powershell
 docker compose run --rm spark-processor python src/streaming/kafka_producer.py
+docker compose run --rm spark-processor python src/streaming/kafka_producer.py --stress-test
 docker compose run --rm spark-processor python src/streaming/kafka_consumer.py
 ```
 

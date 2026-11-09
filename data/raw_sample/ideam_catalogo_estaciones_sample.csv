@@ -1,0 +1,151 @@
+codigo,nombre,categoria,tecnologia,estado,departamento,municipio,ubicaci_n,altitud,longitud,latitud,fecha_instalacion,fecha_suspension,area_operativa,corriente,area_hidrografica,zona_hidrografica,subzona_hidrografica,entidad
+23197510,LADRILLERA  [23197510],Limnimétrica,Convencional,Activa,Santander,Bucaramanga,"
+,  
+(-73.13333333, 7.116666667)",880,-73.13333333,7.116666667,15/09/1981,,Area Operativa 08 - Santanderes-Arauca,QUEBRADA IGLESIA,Magdalena Cauca,Medio Magdalena,Río Lebrija y otros directos al Magdalena,PROYECTO COLOMBO - HOLANDÉS
+24030850,ASERRIO EL [24030850],Pluviométrica,Convencional,Activa,Santander,Onzaga,"
+,  
+(-72.816223889, 6.340681111)",1948,-72.816223889,6.340681111,15/08/1980,,Area Operativa 08 - Santanderes-Arauca,,Magdalena Cauca,Sogamoso,Río Chicamocha,INSTITUTO DE HIDROLOGÍA METEOROLOGÍA Y ESTUDIOS AMBIENTALES
+3701500117,EL PORTILLO - AUT   [3701500117],Climatológica Principal,Automática con Telemetría,En Mantenimiento,Norte De Santander,Silos,"
+,  
+(-72.55028, 7.40122)",3926,-72.55028,7.40122,03/07/2017,,Area Operativa 08 - Santanderes-Arauca,,Orinoco,Arauca,Río Chítaga,INSTITUTO DE HIDROLOGÍA METEOROLOGÍA Y ESTUDIOS AMBIENTALES
+2319500043,FLORIDABLANCA - AUT   [2319500043],Climatológica Principal,Automática con Telemetría,Activa,Santander,Floridablanca,"
+,  
+(-73.090627, 7.056797)",894,-73.090627,7.056797,11/04/2018,,Area Operativa 08 - Santanderes-Arauca,,Magdalena Cauca,Medio Magdalena,Río Lebrija y otros directos al Magdalena,INSTITUTO DE HIDROLOGÍA METEOROLOGÍA Y ESTUDIOS AMBIENTALES
+24030200,SAN JOAQUIN [24030200],Pluviométrica,Convencional,Activa,Santander,San Joaquín,"
+,  
+(-72.866376944, 6.429456111)",1977,-72.866376944,6.429456111,15/02/1958,,Area Operativa 08 - Santanderes-Arauca,,Magdalena Cauca,Sogamoso,Río Chicamocha,INSTITUTO DE HIDROLOGÍA METEOROLOGÍA Y ESTUDIOS AMBIENTALES
+2319500274,ACAPULCO [2319500274],Climatológica Principal,Automática con Telemetría,Activa,Santander,Girón,"
+,  
+(-73.147311111, 6.997444444)",1001,-73.147311111,6.997444444,23/06/2022,,Area Operativa 08 - Santanderes-Arauca,,Magdalena Cauca,Medio Magdalena,Río Lebrija y otros directos al Magdalena,CORPORACIÓN AUTÓNOMA REGIONAL DE DEFENSA DE LA MESETA DE BUCARAMANGA
+16055080,MARAVILLA LA [16055080],Pluviográfica,Convencional,Suspendida,Norte De Santander,San Calixto,"
+,  
+(-73.21361111, 8.407777778)",1650,-73.21361111,8.407777778,15/07/1986,10/08/2009,Area Operativa 08 - Santanderes-Arauca,,Caribe,Catatumbo,Río Algodonal (Alto Catatumbo),INSTITUTO DE HIDROLOGÍA METEOROLOGÍA Y ESTUDIOS AMBIENTALES
+23190410,BRASIL EL [23190410],Pluviométrica,Convencional,Suspendida,Santander,Tona,"
+,  
+(-73.01666667, 7.15)",190,-73.01666667,7.15,15/07/1968,15/11/1971,Area Operativa 08 - Santanderes-Arauca,,Magdalena Cauca,Medio Magdalena,Río Lebrija y otros directos al Magdalena,INSTITUTO DE HIDROLOGÍA METEOROLOGÍA Y ESTUDIOS AMBIENTALES
+23197480,PTE NARINO  [23197480],Limnimétrica,Convencional,Activa,Santander,Bucaramanga,"
+,  
+(-73.13333333, 7.166666667)",600,-73.13333333,7.166666667,15/05/1981,,Area Operativa 08 - Santanderes-Arauca,DE ORO,Magdalena Cauca,Medio Magdalena,Río Lebrija y otros directos al Magdalena,CORPORACIÓN AUTÓNOMA REGIONAL DE DEFENSA DE LA MESETA DE BUCARAMANGA
+23190260,LAGUNA LA [23190260],Pluviométrica,Convencional,Activa,Santander,Lebrija,"
+,  
+(-73.21361111, 7.079722222)",150,-73.21361111,7.079722222,15/05/1967,,Area Operativa 08 - Santanderes-Arauca,,Magdalena Cauca,Medio Magdalena,Río Lebrija y otros directos al Magdalena,INSTITUTO DE HIDROLOGÍA METEOROLOGÍA Y ESTUDIOS AMBIENTALES
+23190240,CNO SIETE [23190240],Pluviométrica,Convencional,Suspendida,Santander,Rionegro,"
+,  
+(-73.45, 7.4)",2200,-73.45,7.4,15/10/1965,15/07/1977,Area Operativa 08 - Santanderes-Arauca,,Magdalena Cauca,Medio Magdalena,Río Lebrija y otros directos al Magdalena,INSTITUTO DE HIDROLOGÍA METEOROLOGÍA Y ESTUDIOS AMBIENTALES
+24020230,PUEBLO VIEJO [24020230],Pluviométrica,Convencional,Activa,Santander,Coromoro,"
+,  
+(-72.94672222, 6.248777778)",2107,-72.94672222,6.248777778,15/04/1983,,Area Operativa 08 - Santanderes-Arauca,,Magdalena Cauca,Sogamoso,Río Fonce,INSTITUTO DE HIDROLOGÍA METEOROLOGÍA Y ESTUDIOS AMBIENTALES
+1602500044,GRAMALOTE - AUT   [1602500044],Climatológica Principal,Automática con Telemetría,Activa,Norte De Santander,Gramalote,"
+,  
+(-72.803027778, 7.913166667)",1214,-72.803027778,7.913166667,29/06/2017,,Area Operativa 08 - Santanderes-Arauca,,Caribe,Catatumbo,Río Zulia,INSTITUTO DE HIDROLOGÍA METEOROLOGÍA Y ESTUDIOS AMBIENTALES
+23195160,GRAMAL EL  [23195160],Climatológica Ordinaria,Convencional,Activa,Santander,Tona,"
+,  
+(-72.96666667, 7.2)",2350,-72.96666667,7.2,15/10/1984,,Area Operativa 08 - Santanderes-Arauca,,Magdalena Cauca,Medio Magdalena,Río Lebrija y otros directos al Magdalena,ESTACIONES PARTICULARES
+23195010,SAN PEDRO CLAVER  [23195010],Climatológica Ordinaria,Convencional,Suspendida,Santander,Bucaramanga,"
+,  
+(-73.15, 7.133333333)",1018,-73.15,7.133333333,15/09/1922,15/12/1937,Area Operativa 08 - Santanderes-Arauca,,Magdalena Cauca,Medio Magdalena,Río Lebrija y otros directos al Magdalena,ESTACIONES PARTICULARES
+16060010,CNO LA RAYA [16060010],Pluviométrica,Convencional,Activa,Norte De Santander,Tibú,"
+,  
+(-72.79166667, 8.834722222)",75,-72.79166667,8.834722222,15/04/1973,,Area Operativa 08 - Santanderes-Arauca,,Caribe,Catatumbo,Río Socuavo del Norte y Río Socuavo Sur,INSTITUTO DE HIDROLOGÍA METEOROLOGÍA Y ESTUDIOS AMBIENTALES
+24025504,ENCINO-24025504  - AUT  [24025504],Pluviométrica,Automática con Telemetría,Activa,Santander,Encino,"
+,  
+(-73.09926389, 6.139936111)",1898,-73.09926389,6.139936111,,,Area Operativa 08 - Santanderes-Arauca,,Magdalena Cauca,Sogamoso,Río Fonce,ISAGÉN  S.A. E.S.P
+24025502,CHARALA-24025502  - AUT  [24025502],Climatológica Principal,Automática con Telemetría,Activa,Santander,Charalá,"
+,  
+(-73.13586944, 6.281416667)",1328,-73.13586944,6.281416667,,,Area Operativa 08 - Santanderes-Arauca,,Magdalena Cauca,Sogamoso,Río Fonce,ISAGÉN  S.A. E.S.P
+24040010,BARICHARA  [24040010],Pluviométrica,Convencional,Activa,Santander,Barichara,"
+,  
+(-73.23333333, 6.633333333)",1300,-73.23333333,6.633333333,15/01/1953,,Area Operativa 08 - Santanderes-Arauca,,Magdalena Cauca,Sogamoso,Río Suárez,COMPAÑÍA COLOMBIANA DE TABACO
+24050040,BETULIA  [24050040],Pluviométrica,Convencional,Suspendida,Santander,Betulia,"
+,  
+(-73.28333333, 6.916666667)",1500,-73.28333333,6.916666667,15/01/1956,15/12/1959,Area Operativa 08 - Santanderes-Arauca,,Magdalena Cauca,Sogamoso,Río Sogamoso,COMPAÑÍA COLOMBIANA DE TABACO
+16027240,Z-3 [16027240],Limnimétrica,Convencional,Suspendida,Norte De Santander,Cúcuta,"
+,  
+(-72.55, 8.083333333)",114,-72.55,8.083333333,15/10/1980,15/01/1990,Area Operativa 08 - Santanderes-Arauca,CANAL ZULIA,Caribe,Catatumbo,Río Zulia,INSTITUTO DE HIDROLOGÍA METEOROLOGÍA Y ESTUDIOS AMBIENTALES
+24050120,PARROQUIA LA  [24050120],Pluviométrica,Convencional,Activa,Santander,San Vicente De Chucurí,"
+,  
+(-73.43333333, 6.95)",500,-73.43333333,6.95,15/02/1967,,Area Operativa 08 - Santanderes-Arauca,,Magdalena Cauca,Sogamoso,Río Sogamoso,FEDERACIÓN NACIONAL DE CAFETEROS
+2319500267,EL CAIRO [2319500267],Climatológica Principal,Automática con Telemetría,Activa,Santander,Rionegro,"
+,  
+(-73.164044444, 7.350486111)",1059,-73.164044444,7.350486111,27/06/2022,,Area Operativa 08 - Santanderes-Arauca,,Magdalena Cauca,Medio Magdalena,Río Lebrija y otros directos al Magdalena,CORPORACIÓN AUTÓNOMA REGIONAL DE DEFENSA DE LA MESETA DE BUCARAMANGA
+16017270,PALO COLORADO  - AUT  [16017270],Limnigráfica,Automática con Telemetría,Activa,Norte De Santander,Chinácota,"
+,  
+(-72.57183333, 7.629777778)",1165,-72.57183333,7.629777778,,,Area Operativa 08 - Santanderes-Arauca,QUEBRADA LA HONDA,Caribe,Catatumbo,Río Pamplonita,CORPORACIÓN AUTÓNOMA REGIONAL DE LA FRONTERA NORORIENTAL
+16025050,LIMONCITO [16025050],Climatológica Ordinaria,Convencional,Suspendida,Norte De Santander,Cúcuta,"
+,  
+(-72.56666667, 8.1)",120,-72.56666667,8.1,15/09/1968,15/11/1981,Area Operativa 08 - Santanderes-Arauca,,Caribe,Catatumbo,Río Zulia,INSTITUTO DE HIDROLOGÍA METEOROLOGÍA Y ESTUDIOS AMBIENTALES
+16057030,LA CABAÑA - AUT [16057030],Limnigráfica,"Automática con Telemetría, Convencional",En Mantenimiento,Norte De Santander,Ocaña,"
+,  
+(-73.31825, 8.197805556)",1220,-73.31825,8.197805556,15/10/1971,,Area Operativa 08 - Santanderes-Arauca,ALGODONAL,Caribe,Catatumbo,Río Algodonal (Alto Catatumbo),INSTITUTO DE HIDROLOGÍA METEOROLOGÍA Y ESTUDIOS AMBIENTALES
+23190470,PALMERAS HACIENDA [23190470],Pluviométrica,Convencional,Suspendida,Santander,Rionegro,"
+,  
+(-73.53333333, 7.55)",130,-73.53333333,7.55,15/06/1971,15/07/1978,Area Operativa 08 - Santanderes-Arauca,,Magdalena Cauca,Medio Magdalena,Río Lebrija y otros directos al Magdalena,INSTITUTO DE HIDROLOGÍA METEOROLOGÍA Y ESTUDIOS AMBIENTALES
+24015280,GAMBITA [24015280],Climatológica Ordinaria,Convencional,Activa,Santander,Gámbita,"
+,  
+(-73.34361111, 5.944722222)",1900,-73.34361111,5.944722222,15/05/1974,,Area Operativa 08 - Santanderes-Arauca,,Magdalena Cauca,Sogamoso,Río Suárez,INSTITUTO DE HIDROLOGÍA METEOROLOGÍA Y ESTUDIOS AMBIENTALES
+23195100,CHARTA  [23195100],Climatológica Ordinaria,Convencional,Activa,Santander,Charta,"
+,  
+(-72.96666667, 7.283333333)",1935,-72.96666667,7.283333333,15/11/1984,,Area Operativa 08 - Santanderes-Arauca,,Magdalena Cauca,Medio Magdalena,Río Lebrija y otros directos al Magdalena,ESTACIONES PARTICULARES
+23197540,STA CRUZ  [23197540],Limnimétrica,Convencional,Activa,Santander,Rionegro,"
+,  
+(-73.05, 7.333333333)",1700,-73.05,7.333333333,15/03/1982,,Area Operativa 08 - Santanderes-Arauca,QUEBRADA AGUA CALIENTE,Magdalena Cauca,Medio Magdalena,Río Lebrija y otros directos al Magdalena,PROYECTO COLOMBO - HOLANDÉS
+16050170,BROTARE [16050170],Pluviométrica,Convencional,Activa,Norte De Santander,Ocaña,"
+,  
+(-73.42333333, 8.400555556)",1545,-73.42333333,8.400555556,15/06/1960,,Area Operativa 08 - Santanderes-Arauca,,Caribe,Catatumbo,Río Algodonal (Alto Catatumbo),INSTITUTO DE HIDROLOGÍA METEOROLOGÍA Y ESTUDIOS AMBIENTALES
+24035400,EL VOLCÁN [24035400],Climatológica Ordinaria,Convencional,Activa,Santander,Cerrito,"
+,  
+(-72.67777778, 6.845277778)",2841,-72.67777778,6.845277778,08/09/2006,,Area Operativa 08 - Santanderes-Arauca,,Magdalena Cauca,Sogamoso,Río Chicamocha,INSTITUTO DE HIDROLOGÍA METEOROLOGÍA Y ESTUDIOS AMBIENTALES
+2319700201,GOLONDRINAS [2319700201],Limnigráfica,Automática con Telemetría,Activa,Santander,Bucaramanga,"
+,  
+(-73.054544444, 7.142466667)",1310,-73.054544444,7.142466667,,,Area Operativa 08 - Santanderes-Arauca,QUEBRADA,Magdalena Cauca,Medio Magdalena,Río Lebrija y otros directos al Magdalena,ACUEDUCTO METROPOLITANO DE BUCARAMANGA
+16017160,PAMPLONA RADIO FM  [16017160],Limnimétrica,Convencional,Activa,Norte De Santander,Pamplona,"
+,  
+(-73.65247222, 7.369555556)",2214,-73.65247222,7.369555556,15/08/2005,,Area Operativa 08 - Santanderes-Arauca,PAMPLONITA,Magdalena Cauca,Medio Magdalena,Río Lebrija y otros directos al Magdalena,CORPORACIÓN AUTÓNOMA REGIONAL DE LA FRONTERA NORORIENTAL
+16047010,PUENTE ABREGO - AUT [16047010],Limnigráfica,"Automática con Telemetría, Convencional",Suspendida,Norte De Santander,Ábrego,"
+,  
+(-73.08305556, 8.043333333)",1430,-73.08305556,8.043333333,15/10/1971,21/03/2025,Area Operativa 08 - Santanderes-Arauca,TARRA,Caribe,Catatumbo,Río Tarra,INSTITUTO DE HIDROLOGÍA METEOROLOGÍA Y ESTUDIOS AMBIENTALES
+1602500063,MUTISCUA - AUT [1602500063],Climatológica Principal,Automática con Telemetría,En Mantenimiento,Norte De Santander,Mutiscua,"
+,  
+(-72.745761111, 7.299088889)",2680,-72.745761111,7.299088889,26/08/2018,,Area Operativa 08 - Santanderes-Arauca,,Caribe,Catatumbo,Río Zulia,INSTITUTO DE HIDROLOGÍA METEOROLOGÍA Y ESTUDIOS AMBIENTALES
+24020250,PLAZUELA LA  [24020250],Pluviométrica,Convencional,Activa,Santander,Socorro,"
+,  
+(-73.21666667, 6.466666667)",1700,-73.21666667,6.466666667,15/01/1991,,Area Operativa 08 - Santanderes-Arauca,,Magdalena Cauca,Sogamoso,Río Suárez,FEDERACIÓN NACIONAL DE CAFETEROS
+16015502,BLONAY  - AUT  [16015502],Climatológica Principal,Automática con Telemetría,Activa,Norte De Santander,Chinácota,"
+,  
+(-72.621361111, 7.56525)",1253,-72.621361111,7.56525,13/05/2013,,Area Operativa 08 - Santanderes-Arauca,,Caribe,Catatumbo,Río Pamplonita,CENTRO NACIONAL DE INVESTIGACIONES DE CAFÉ
+23120010,VERDE LA [23120010],Pluviométrica,Convencional,Activa,Santander,Cimitarra,"
+,  
+(-73.89972222, 6.4125)",140,-73.89972222,6.4125,15/07/1976,,Area Operativa 08 - Santanderes-Arauca,,Magdalena Cauca,Medio Magdalena,Río Carare (Minero),INSTITUTO DE HIDROLOGÍA METEOROLOGÍA Y ESTUDIOS AMBIENTALES
+2402700307,PIRMA- 2 ENCINO [2402700307],Limnimétrica,Automática con Telemetría,Activa,Santander,Encino,"
+,  
+(-73.112619444, 6.135536111)",1575,-73.112619444,6.135536111,16/12/2023,,Area Operativa 08 - Santanderes-Arauca,RIO PIENTA,Magdalena Cauca,Sogamoso,Río Fonce,CORPORACIÓN AUTÓNOMA REGIONAL DE SANTANDER
+24040070,CHOCHOS  [24040070],Pluviométrica,Convencional,Activa,Santander,Hato,"
+,  
+(-73.3, 6.533333333)",1400,-73.3,6.533333333,15/08/1979,,Area Operativa 08 - Santanderes-Arauca,,Magdalena Cauca,Sogamoso,Río Suárez,FEDERACIÓN NACIONAL DE CAFETEROS
+37010020,CHITAGA [37010020],Pluviométrica,Convencional,Activa,Norte De Santander,Chitagá,"
+,  
+(-72.66472222, 7.139444444)",2410,-72.66472222,7.139444444,15/02/1958,,Area Operativa 08 - Santanderes-Arauca,,Orinoco,Arauca,Río Chítaga,INSTITUTO DE HIDROLOGÍA METEOROLOGÍA Y ESTUDIOS AMBIENTALES
+24027080,AVENTINO EL [24027080],Limnimétrica,Convencional,Suspendida,Santander,San Gil,"
+,  
+(-73.11666667, 6.5)",1145,-73.11666667,6.5,15/10/1979,15/09/1997,Area Operativa 08 - Santanderes-Arauca,FONCE,Magdalena Cauca,Sogamoso,Río Fonce,INSTITUTO DE HIDROLOGÍA METEOROLOGÍA Y ESTUDIOS AMBIENTALES
+16020290,PLOMO EL [16020290],Pluviométrica,Convencional,Suspendida,Norte De Santander,Cúcuta,"
+,  
+(-72.51666667, 8.166666667)",120,-72.51666667,8.166666667,15/09/1969,15/07/1977,Area Operativa 08 - Santanderes-Arauca,,Caribe,Catatumbo,Río Zulia,INSTITUTO DE HIDROLOGÍA METEOROLOGÍA Y ESTUDIOS AMBIENTALES
+23187300,TOPACIO EL [23187300],Limnimétrica,Convencional,Suspendida,Santander,Sabana De Torres,"
+,  
+(-73.5, 7.516666667)",70,-73.5,7.516666667,15/07/1980,15/05/1996,Area Operativa 08 - Santanderes-Arauca,CANAL PRINCIPAL,Magdalena Cauca,Medio Magdalena,Río Lebrija y otros directos al Magdalena,INSTITUTO DE HIDROLOGÍA METEOROLOGÍA Y ESTUDIOS AMBIENTALES
+23125110,PORTUGAL HACIENDA [23125110],Climatológica Ordinaria,Convencional,Suspendida,Santander,Cimitarra,"
+,  
+(-74.05, 6.5)",200,-74.05,6.5,15/05/1975,15/03/1978,Area Operativa 08 - Santanderes-Arauca,,Magdalena Cauca,Medio Magdalena,Río Carare (Minero),INSTITUTO DE HIDROLOGÍA METEOROLOGÍA Y ESTUDIOS AMBIENTALES
+23187070,SOGAMOSO ABAJO-MAL [23187070],Limnimétrica,Convencional,Suspendida,Santander,Puerto Wilches,"
+,  
+(-73.93333333, 7.25)",60,-73.93333333,7.25,15/07/1971,15/08/1976,Area Operativa 08 - Santanderes-Arauca,MAGDALENA,Magdalena Cauca,Medio Magdalena,Río Cimitarra y otros directos al Magdalena,INSTITUTO DE HIDROLOGÍA METEOROLOGÍA Y ESTUDIOS AMBIENTALES
+16030080,LOURDES [16030080],Pluviométrica,Convencional,Activa,Norte De Santander,Lourdes,"
+,  
+(-72.8325, 7.950277778)",1200,-72.8325,7.950277778,15/03/1973,,Area Operativa 08 - Santanderes-Arauca,,Caribe,Catatumbo,"Río Nuevo Presidente - Tres Bocas (Sardinata, Tibu)",INSTITUTO DE HIDROLOGÍA METEOROLOGÍA Y ESTUDIOS AMBIENTALES
+16050210,HIPILANDIA HDA  [16050210],Pluviométrica,Convencional,Suspendida,Norte De Santander,Ábrego,"
+,  
+(-73.38333333, 8.3)",1851,-73.38333333,8.3,15/01/1960,15/03/1961,Area Operativa 08 - Santanderes-Arauca,,Caribe,Catatumbo,Río Algodonal (Alto Catatumbo),INSTITUTO COLOMBIANO DE ENERGÍA ELÉCTRICA (ELECTRAGUAS)
+23120180,CIMITARRA [23120180],Pluviométrica,Convencional,Suspendida,Santander,Cimitarra,"
+,  
+(-73.95, 6.316666667)",200,-73.95,6.316666667,15/09/1971,15/07/1975,Area Operativa 08 - Santanderes-Arauca,,Magdalena Cauca,Medio Magdalena,Río Carare (Minero),INSTITUTO DE HIDROLOGÍA METEOROLOGÍA Y ESTUDIOS AMBIENTALES

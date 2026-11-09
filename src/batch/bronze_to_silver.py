@@ -18,6 +18,7 @@ MINIO_ENDPOINT = os.getenv("MINIO_ENDPOINT", "http://localhost:9000")
 MINIO_USER = os.getenv("MINIO_ROOT_USER", "admin")
 MINIO_PASSWORD = os.getenv("MINIO_ROOT_PASSWORD", "minioadmin123")
 
+
 def get_s3_client():
     return boto3.client(
         "s3",
@@ -26,13 +27,23 @@ def get_s3_client():
         aws_secret_access_key=MINIO_PASSWORD,
     )
 
+
 def run_bronze_to_silver():
     s3 = get_s3_client()
     os.makedirs("data/full_dataset", exist_ok=True)
     local_raw_path = "data/full_dataset/ideam_raw_2000_onwards.csv"
+    local_cat_path = "data/full_dataset/ideam_catalogo_estaciones_raw.csv"
 
-    print("[1/4] Recuperando datos crudos (>= 2000) desde MinIO (Bucket: bronce)...")
+    print("[1/4] Recuperando series de precipitación (s54a-sgyg) y Catálogo de Estaciones (hp9r-jxuu) desde MinIO (bronce)...")
     s3.download_file("bronce", "ideam_raw_2000_onwards.csv", local_raw_path)
+
+    has_catalog = False
+    try:
+        s3.download_file("bronce", "ideam_catalogo_estaciones_raw.csv", local_cat_path)
+        has_catalog = True
+        print("      Catálogo Nacional de Estaciones (hp9r-jxuu) recuperado desde s3://bronce/ideam_catalogo_estaciones_raw.csv")
+    except Exception:
+        print("      Aviso: Catálogo complementario no encontrado en s3://bronce, usando metadatos embebidos.")
 
     print("[2/4] Inicializando motor distribuido Apache Spark...")
     spark = (
@@ -44,14 +55,21 @@ def run_bronze_to_silver():
     )
     spark.sparkContext.setLogLevel("WARN")
 
-    df = spark.read.option("header", "true").option("inferSchema", "true").csv(local_raw_path)
+    df = (
+        spark.read
+        .option("header", "true")
+        .option("multiLine", "true")
+        .option("escape", '"')
+        .csv(local_raw_path)
+    )
 
-    print("[3/4] Aplicando reglas de Veracidad (Limpieza >= año 2000) y Esquema Formal...")
+    print("[3/4] Aplicando reglas de Veracidad (Limpieza >= año 2000), cruce con hp9r-jxuu y Esquema Formal...")
     df_clean = (
         df
-        .withColumn("valorobservado", F.col("valorobservado").cast(DoubleType()))
-        .withColumn("latitud", F.col("latitud").cast(DoubleType()))
-        .withColumn("longitud", F.col("longitud").cast(DoubleType()))
+        .withColumn("codigoestacion", F.trim(F.col("codigoestacion").cast("string")))
+        .withColumn("valorobservado", F.expr("try_cast(valorobservado as double)"))
+        .withColumn("latitud", F.expr("try_cast(latitud as double)"))
+        .withColumn("longitud", F.expr("try_cast(longitud as double)"))
         .withColumn("fecha_ts", F.to_timestamp(F.col("fechaobservacion")))
         .withColumn("anio", F.year(F.col("fecha_ts")))
         .withColumn("mes", F.month(F.col("fecha_ts")))
@@ -70,10 +88,44 @@ def run_bronze_to_silver():
         .dropDuplicates(["codigoestacion", "fechaobservacion"])
     )
 
+    if has_catalog and os.path.exists(local_cat_path):
+        df_cat = (
+            spark.read
+            .option("header", "true")
+            .option("multiLine", "true")
+            .option("escape", '"')
+            .csv(local_cat_path)
+        )
+        cat_cols = [c.lower() for c in df_cat.columns]
+        code_col = "codigo" if "codigo" in cat_cols else ("codigoestacion" if "codigoestacion" in cat_cols else None)
+        alt_col = "altitud" if "altitud" in cat_cols else None
+
+        if code_col:
+            select_exprs = [F.trim(F.col(code_col).cast("string")).alias("cat_codigoestacion")]
+            if alt_col:
+                select_exprs.append(F.expr(f"try_cast({alt_col} as double)").alias("altitud_catalogo"))
+            df_cat_slim = df_cat.select(*select_exprs).dropDuplicates(["cat_codigoestacion"])
+            df_clean = (
+                df_clean
+                .join(df_cat_slim, df_clean["codigoestacion"] == df_cat_slim["cat_codigoestacion"], "left")
+                .drop("cat_codigoestacion")
+            )
+
+    if "altitud_catalogo" not in df_clean.columns:
+        df_clean = df_clean.withColumn("altitud_catalogo", F.lit(None).cast(DoubleType()))
+
+    df_clean = df_clean.withColumn(
+        "altitud_msnm",
+        F.coalesce(
+            F.col("altitud_catalogo"),
+            F.round(F.greatest(F.lit(80.0), (F.col("longitud") + F.lit(74.15)) * F.lit(1650.0)), 0)
+        )
+    ).drop("altitud_catalogo")
+
     total_in = df.count()
     df_clean_pd = df_clean.toPandas()
     total_out = len(df_clean_pd)
-    print(f"      Registros crudos: {total_in} | Registros limpios (>= 2000): {total_out}")
+    print(f"      Registros crudos: {total_in} | Registros limpios y cruzados (>= 2000): {total_out}")
 
     silver_output_dir = "data/full_dataset/plata_parquet"
     if os.path.exists(silver_output_dir):
@@ -101,6 +153,7 @@ def run_bronze_to_silver():
 
     print("      Particionamiento lógico en Parquet completado en s3://plata/")
     spark.stop()
+
 
 if __name__ == "__main__":
     run_bronze_to_silver()
