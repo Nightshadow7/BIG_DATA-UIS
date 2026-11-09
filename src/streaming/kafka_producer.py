@@ -35,7 +35,7 @@ def get_kafka_broker():
 def fetch_forecast_by_coords(lat, lon):
     """
     Consulta determinista en tiempo real a Open-Meteo para la latitud y longitud exactas.
-    Obtiene las últimas 6 horas observadas y el pronóstico horario para las próximas 6 horas.
+    Obtiene las últimas 6 horas observadas y el pronóstico horario para T+1h, T+3h y T+6h.
     """
     try:
         params = {
@@ -60,13 +60,13 @@ def fetch_forecast_by_coords(lat, lon):
         prob_all = [int(x or 0) for x in hourly.get("precipitation_probability", [])]
         soil_all = [float(x) for x in hourly.get("soil_moisture_0_to_7cm", []) if x is not None]
 
-        # Separar ventana pasada (6 horas antecedentes) y ventana futura (T+3h y T+6h)
         past_precip = precip_all[:6] if len(precip_all) >= 6 else [0.0]
         future_precip = precip_all[6:] if len(precip_all) > 6 else precip_all[:6]
         future_prob = prob_all[6:] if len(prob_all) > 6 else prob_all[:6]
 
         lluvia_actual_mm = round(past_precip[-1], 2) if past_precip else 0.0
         lluvia_ant_6h_mm = round(sum(past_precip), 2)
+        pronostico_1h_mm = round(sum(future_precip[:1]), 2)
         pronostico_3h_mm = round(sum(future_precip[:3]), 2)
         pronostico_6h_mm = round(sum(future_precip[:6]), 2)
         prob_3h_pct = int(max(future_prob[:3])) if future_prob[:3] else 0
@@ -75,6 +75,7 @@ def fetch_forecast_by_coords(lat, lon):
         return {
             "lluvia_actual_mm": lluvia_actual_mm,
             "lluvia_antecedente_6h_mm": lluvia_ant_6h_mm,
+            "pronostico_1h_mm": pronostico_1h_mm,
             "pronostico_3h_mm": pronostico_3h_mm,
             "pronostico_6h_mm": pronostico_6h_mm,
             "probabilidad_satelital_pct": prob_3h_pct,
@@ -85,6 +86,7 @@ def fetch_forecast_by_coords(lat, lon):
         return {
             "lluvia_actual_mm": 0.0,
             "lluvia_antecedente_6h_mm": 0.4,
+            "pronostico_1h_mm": 0.3,
             "pronostico_3h_mm": 0.8,
             "pronostico_6h_mm": 1.5,
             "probabilidad_satelital_pct": 35,
@@ -95,11 +97,12 @@ def fetch_forecast_by_coords(lat, lon):
 
 def compute_spark_predictive_vector(st, forecast, stress_test=False, idx=1):
     """
-    Aplica el modelo hidrológico entrenado en Apache Spark (Capa Oro) sobre el pronóstico satelital:
+    Aplica el modelo hidrológico y estacional entrenado en Apache Spark (Capa Oro) sobre el pronóstico satelital:
+    - Régimen bimodal estacional de Santander (factor_estacional_bimodal, media_epoca_lluvias_mm, media_epoca_seca_mm)
     - Coeficiente de escorrentía de la cuenca (coef_escorrentia)
-    - Índice de Precipitación Antecedente crítico (api_critico_24h_mm)
+    - Índice de Precipitación Antecedente crítico 24h (api_critico_24h_mm)
     - Probabilidad condicional Markoviana P(Exceso_{t+3h} | Saturacion_t)
-    - Umbrales acumulados en ventana de 3 horas (umbral_3h_p90, umbral_3h_p99)
+    - Umbrales acumulados en ventana de 10.800 s / 3 horas (umbral_3h_p90, umbral_3h_p99)
     """
     p90_3h = float(st.get("umbral_3h_p90", st["umbral_alerta_naranja"]))
     p99_3h = float(st.get("umbral_3h_p99", st["umbral_alerta_roja"]))
@@ -108,38 +111,49 @@ def compute_spark_predictive_vector(st, forecast, stress_test=False, idx=1):
     prob_markov = float(st.get("prob_transicion_exceso", 0.35))
     ventana_evac_min = int(st.get("ventana_evacuacion_min", 150))
     altitud_msnm = float(st.get("altitud_msnm", 950.0))
+    factor_bimodal = float(st.get("factor_estacional_bimodal", 1.25))
+
+    mes_actual = datetime.now(timezone.utc).month
+    if mes_actual in (4, 5, 10, 11):
+        ponderador_estacional = min(1.45, max(1.05, factor_bimodal * 0.85))
+    elif mes_actual in (1, 2, 7, 8):
+        ponderador_estacional = 0.78
+    else:
+        ponderador_estacional = 1.0
 
     lluvia_actual = forecast["lluvia_actual_mm"]
     saturacion_suelo_pct = forecast["saturacion_suelo_pct"]
+    pronostico_1h = forecast["pronostico_1h_mm"]
     pronostico_3h = forecast["pronostico_3h_mm"]
     pronostico_6h = forecast["pronostico_6h_mm"]
     prob_sat = forecast["probabilidad_satelital_pct"]
     modo_operacion = "REAL_OPEN_METEO_SPARK"
 
-    # Modo determinista de prueba de estrés (--stress-test) explícito para sustentación en tiempo seco
     if stress_test:
         modo_operacion = "STRESS_TEST_DETERMINISTA"
         if idx % 3 == 0:
-            # Escenario de superación de umbral crítico 3h P99 por frente convectivo entrante
             pronostico_3h = round(p99_3h * 1.08, 2)
+            pronostico_1h = round(pronostico_3h * 0.36, 2)
             pronostico_6h = round(p99_3h * 1.38, 2)
             prob_sat = max(prob_sat, 92)
             saturacion_suelo_pct = max(saturacion_suelo_pct, 74.0)
         elif idx % 3 == 1:
-            # Escenario de vigilancia predictiva 3h P90 por saturación de suelo + lluvia entrante
             pronostico_3h = round(p90_3h + (p99_3h - p90_3h) * 0.35, 2)
+            pronostico_1h = round(pronostico_3h * 0.35, 2)
             pronostico_6h = round(p90_3h + (p99_3h - p90_3h) * 0.65, 2)
             prob_sat = max(prob_sat, 78)
             saturacion_suelo_pct = max(saturacion_suelo_pct, 61.0)
 
-    # 1. Saturación antecedente efectiva (API ponderado por humedad superficial y coeficiente de escorrentía Spark)
+    # 1. Saturación antecedente efectiva modulada por la estacionalidad mensual/trimestral de Spark
     factor_humedad = max(0.0, (saturacion_suelo_pct - 25.0) / 100.0)
     saturacion_antecedente_mm = round(
-        (forecast["lluvia_antecedente_6h_mm"] * coef_esc) + (api_crit_24h * factor_humedad * coef_esc * 0.5),
+        (forecast["lluvia_antecedente_6h_mm"] * coef_esc) +
+        (api_crit_24h * factor_humedad * coef_esc * 0.45 * ponderador_estacional),
         2
     )
 
-    # 2. Volumen efectivo proyectado a T+3h y T+6h (Saturación antecedente efectiva + precipitación entrante)
+    # 2. Volumen efectivo proyectado a T+1h, T+3h y T+6h
+    volumen_proyectado_1h = round(saturacion_antecedente_mm * 0.5 + pronostico_1h, 2)
     volumen_proyectado_3h = round(saturacion_antecedente_mm + pronostico_3h, 2)
     volumen_proyectado_6h = round(saturacion_antecedente_mm + pronostico_6h, 2)
 
@@ -160,8 +174,10 @@ def compute_spark_predictive_vector(st, forecast, stress_test=False, idx=1):
     return {
         "lluvia_actual_mm": lluvia_actual,
         "saturacion_antecedente_mm": saturacion_antecedente_mm,
+        "pronostico_proximas_1h_mm": pronostico_1h,
         "pronostico_proximas_3h_mm": pronostico_3h,
         "pronostico_proximas_6h_mm": pronostico_6h,
+        "volumen_proyectado_1h_mm": volumen_proyectado_1h,
         "volumen_proyectado_3h_mm": volumen_proyectado_3h,
         "volumen_proyectado_6h_mm": volumen_proyectado_6h,
         "probabilidad_lluvia_pct": prob_sat,
@@ -169,6 +185,7 @@ def compute_spark_predictive_vector(st, forecast, stress_test=False, idx=1):
         "saturacion_suelo_pct": saturacion_suelo_pct,
         "coef_escorrentia_spark": coef_esc,
         "prob_transicion_markov_spark": prob_markov,
+        "factor_estacional_bimodal": factor_bimodal,
         "api_critico_24h_mm": api_crit_24h,
         "altitud_msnm": altitud_msnm,
         "ventana_evacuacion_min": ventana_evac_min,
@@ -187,7 +204,7 @@ def run_producer(num_events=26, delay_seconds=1.0, stress_test=False):
     stations = stations_df.to_dict(orient="records")
 
     broker = get_kafka_broker()
-    mode_label = "STRESS-TEST DEMO" if stress_test else "100% REAL (Open-Meteo + Modelo Spark)"
+    mode_label = "STRESS-TEST DEMO" if stress_test else "100% REAL (Open-Meteo + Modelo Estacional Spark)"
     print(f"[Productor Predictivo Kafka] Conectando al broker en {broker} | Modo: {mode_label}...")
 
     producer = KafkaProducer(
@@ -201,7 +218,6 @@ def run_producer(num_events=26, delay_seconds=1.0, stress_test=False):
     print(f"[Productor Predictivo Kafka] Emitiendo {num_events} vectores deterministas a '{TOPIC_NAME}'...\n")
 
     for i in range(1, num_events + 1):
-        # Recorrido determinista por el catálogo de estaciones modeladas en Santander
         st = stations[(i - 1) % len(stations)]
         lat = float(st["latitud"])
         lon = float(st["longitud"])
@@ -221,6 +237,7 @@ def run_producer(num_events=26, delay_seconds=1.0, stress_test=False):
             "altitud_msnm": pred["altitud_msnm"],
             "lluvia_actual_mm": pred["lluvia_actual_mm"],
             "saturacion_antecedente_mm": pred["saturacion_antecedente_mm"],
+            "pronostico_proximas_1h_mm": pred["pronostico_proximas_1h_mm"],
             "pronostico_proximas_3h_mm": pred["pronostico_proximas_3h_mm"],
             "pronostico_proximas_6h_mm": pred["pronostico_proximas_6h_mm"],
             "probabilidad_lluvia_pct": pred["probabilidad_lluvia_pct"],
@@ -228,10 +245,12 @@ def run_producer(num_events=26, delay_seconds=1.0, stress_test=False):
             "saturacion_suelo_pct": pred["saturacion_suelo_pct"],
             "coef_escorrentia_spark": pred["coef_escorrentia_spark"],
             "prob_transicion_markov_spark": pred["prob_transicion_markov_spark"],
+            "factor_estacional_bimodal": pred["factor_estacional_bimodal"],
             "ventana_evacuacion_min": pred["ventana_evacuacion_min"],
+            "volumen_proyectado_1h_mm": pred["volumen_proyectado_1h_mm"],
             "valorobservado": pred["volumen_proyectado_3h_mm"],
             "volumen_proyectado_6h_mm": pred["volumen_proyectado_6h_mm"],
-            "horizonte_prediccion": "T+3h / T+6h",
+            "horizonte_prediccion": "T+1h / T+3h / T+6h",
             "modo_operacion": pred["modo_operacion"],
             "unidadmedida": "mm",
             "fechaobservacion": datetime.now(timezone.utc).isoformat()
@@ -242,9 +261,9 @@ def run_producer(num_events=26, delay_seconds=1.0, stress_test=False):
 
         print(
             f"  -> [{i:02d}/{num_events}] Estación {evento['codigoestacion']} ({evento['municipio']} | "
-            f"Lat:{lat:.4f}, Lon:{lon:.4f}) | Actual: {evento['lluvia_actual_mm']} mm | "
-            f"Proyección T+3h: {evento['valorobservado']} mm (Desborde: {evento['probabilidad_desbordamiento_pct']}%, "
-            f"Evac: {evento['ventana_evacuacion_min']} min) | Partición: {meta.partition}"
+            f"Lat:{lat:.4f}, Lon:{lon:.4f}) | T0: {evento['lluvia_actual_mm']} mm -> "
+            f"T+1h: {evento['volumen_proyectado_1h_mm']} mm | T+3h: {evento['valorobservado']} mm | "
+            f"T+6h: {evento['volumen_proyectado_6h_mm']} mm (Desborde: {evento['probabilidad_desbordamiento_pct']}%) | Partición: {meta.partition}"
         )
         time.sleep(delay_seconds)
 
@@ -255,7 +274,7 @@ def run_producer(num_events=26, delay_seconds=1.0, stress_test=False):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(
-        description="Productor Predictivo de Telemetría Hidrológica (Open-Meteo + Modelo Apache Spark)"
+        description="Productor Predictivo de Telemetría Hidrológica (Open-Meteo + Modelo Estacional Apache Spark)"
     )
     parser.add_argument(
         "--num-events",

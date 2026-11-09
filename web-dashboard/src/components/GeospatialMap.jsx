@@ -7,6 +7,7 @@ import {
   Radio, 
   X
 } from 'lucide-react';
+import { formatPrecipitation } from '../lib/hydrologyRules';
 
 // Coordenadas extremas de Santander para proyección geoespacial
 const BOUNDS = {
@@ -424,12 +425,16 @@ export default function GeospatialMap({
               </a>
             </div>
             <div className="p-2 rounded-xl bg-[#061421]/90 border border-amber-500/30">
-              <span className="text-[10px] text-amber-400 block">Umbral P90 (Vigilancia)</span>
-              <span className="text-amber-300 font-bold text-sm">{activeTooltipStation.umbral_alerta_naranja} mm</span>
+              <span className="text-[10px] text-amber-400 block">Umbral 3h P90 (Vigilancia)</span>
+              <span className="text-amber-300 font-bold text-sm">
+                {formatPrecipitation(activeTooltipStation.umbral_3h_p90 ?? activeTooltipStation.umbral_alerta_naranja)}
+              </span>
             </div>
             <div className="p-2 rounded-xl bg-[#061421]/90 border border-rose-500/30">
-              <span className="text-[10px] text-rose-400 block">Umbral P99 (Crítico)</span>
-              <span className="text-rose-300 font-bold text-sm">{activeTooltipStation.umbral_alerta_roja} mm</span>
+              <span className="text-[10px] text-rose-400 block">Umbral 3h P99 (Crítico)</span>
+              <span className="text-rose-300 font-bold text-sm">
+                {formatPrecipitation(activeTooltipStation.umbral_3h_p99 ?? activeTooltipStation.umbral_alerta_roja)}
+              </span>
             </div>
           </div>
 
@@ -446,14 +451,26 @@ export default function GeospatialMap({
             </a>
           </div>
 
-          {/* Botón rápido para Proyectar Escenario Predictivo T+3h */}
-          <button
-            onClick={() => onSimulatePeak(activeTooltipStation.codigoestacion, true)}
-            className="w-full py-2 px-3 rounded-xl bg-gradient-to-r from-rose-600/30 to-amber-600/30 hover:from-rose-600/40 hover:to-amber-600/40 border border-rose-500/50 text-white text-xs font-mono font-semibold transition-all flex items-center justify-center gap-2 shadow-lg active:scale-95"
-          >
-            <Radio className="w-3.5 h-3.5 text-rose-300 animate-pulse" />
-            <span>Proyectar Escenario Predictivo (T+3h)</span>
-          </button>
+          {/* Acciones: Consulta 100% Real Open-Meteo vs Stress-Test Convectivo */}
+          <div className="grid grid-cols-2 gap-2">
+            <button
+              onClick={() => onSimulatePeak(activeTooltipStation.codigoestacion, false)}
+              className="py-2 px-2.5 rounded-xl bg-cyan-500/20 hover:bg-cyan-500/30 border border-cyan-400/50 text-cyan-200 text-[11px] font-mono font-semibold transition-all flex items-center justify-center gap-1.5 shadow-lg active:scale-95"
+              title="Consulta pronóstico satelital 100% real en Open-Meteo sin multiplicadores sintéticos"
+            >
+              <Radio className="w-3.5 h-3.5 text-cyan-300" />
+              <span>Open-Meteo Real</span>
+            </button>
+
+            <button
+              onClick={() => onSimulatePeak(activeTooltipStation.codigoestacion, true)}
+              className="py-2 px-2.5 rounded-xl bg-gradient-to-r from-rose-600/30 to-amber-600/30 hover:from-rose-600/40 hover:to-amber-600/40 border border-rose-500/50 text-white text-[11px] font-mono font-semibold transition-all flex items-center justify-center gap-1.5 shadow-lg active:scale-95"
+              title="Inyecta escenario de tormenta extrema (Stress-Test) para demostración académica"
+            >
+              <Radio className="w-3.5 h-3.5 text-rose-300 animate-pulse" />
+              <span>Stress-Test (Demo)</span>
+            </button>
+          </div>
 
         </div>
       )}

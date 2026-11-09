@@ -25,7 +25,7 @@ export default function App() {
   const [stations, setStations] = useState(DEFAULT_STATIONS);
   const [alerts, setAlerts] = useState(DEFAULT_ALERTS);
   const [selectedStation, setSelectedStation] = useState(null);
-  const [selectedAlertId, setSelectedAlertId] = useState(1);
+  const [selectedAlertId, setSelectedAlertId] = useState(DEFAULT_ALERTS[0]?.id ?? null);
   const [activeProtocolAlert, setActiveProtocolAlert] = useState(null);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [isSubmittingProtocol, setIsSubmittingProtocol] = useState(false);
@@ -68,6 +68,9 @@ export default function App() {
       }
       if (alertsData && alertsData.length > 0) {
         setAlerts(alertsData);
+        setSelectedAlertId((prev) =>
+          alertsData.some((a) => a.id === prev) ? prev : alertsData[0].id
+        );
       }
     } catch (err) {
       console.warn('[App loadData] Usando datos locales de contingencia:', err);
@@ -87,6 +90,9 @@ export default function App() {
         }
         if (alertsData && alertsData.length > 0) {
           setAlerts(alertsData);
+          setSelectedAlertId((prev) =>
+            alertsData.some((a) => a.id === prev) ? prev : alertsData[0].id
+          );
         }
       })
       .catch((err) => {
@@ -167,20 +173,29 @@ export default function App() {
     }
   };
 
-  // Proyección Predictiva T+3h (Open-Meteo + Modelo Spark)
-  const handleSimulatePeak = async (stationCode, forceP99 = true) => {
+  // Proyección Predictiva T+1h / T+3h / T+6h (100% Open-Meteo por defecto, o Stress-Test explícito)
+  const handleSimulatePeak = async (stationCode, stressTest = false) => {
     const station = stations.find((s) => String(s.codigoestacion) === String(stationCode));
     if (!station) return;
 
     try {
-      const result = await simulateKafkaPeak(stationCode, forceP99, station);
+      const result = await simulateKafkaPeak(stationCode, stressTest, station);
       if (result) {
         setSelectedStation(station);
         setSelectedAlertId(result.alertId);
+        setAlerts((currentAlerts) => {
+          const idx = currentAlerts.findIndex((a) => a.id === result.alertId);
+          if (idx !== -1) {
+            const copy = [...currentAlerts];
+            copy[idx] = { id: result.alertId, ...result.payload };
+            return copy;
+          }
+          return [{ id: result.alertId, ...result.payload }, ...currentAlerts];
+        });
         addToast({
-          title: 'Vector Predictivo T+3h Calculado',
-          description: `Estación ${station.nombreestacion} [Lat ${station.latitud.toFixed(3)}, Lon ${station.longitud.toFixed(3)}] proyecta ${result.payload.precipitacion_registrada} mm en 3h (Evac: ${result.payload.ventana_evacuacion_min} min).`,
-          type: forceP99 ? 'danger' : 'warning',
+          title: stressTest ? 'Stress-Test Convectivo Inyectado' : 'Pronóstico Open-Meteo T+3h Evaluado',
+          description: `Estación ${station.nombreestacion} [Lat ${station.latitud.toFixed(3)}, Lon ${station.longitud.toFixed(3)}]: T0=${result.payload.lluvia_actual_mm ?? 0} mm -> T+3h=${result.payload.precipitacion_registrada} mm (Desborde: ${result.payload.probabilidad_desbordamiento_pct ?? '--'}%).`,
+          type: result.payload.color_alerta === 'red' ? 'danger' : result.payload.color_alerta === 'orange' ? 'warning' : 'info',
           zona: result.payload.zona_id,
         });
       }
@@ -360,7 +375,7 @@ export default function App() {
                       <span>{toast.title}</span>
                       {toast.zona && (
                         <span className="text-[10px] px-1.5 py-0.2 rounded bg-black/50 text-cyan-300 border border-slate-700">
-                          {toast.zona === 'north' ? 'NORTE' : 'SUR'}
+                          {toast.zona === 'north' ? 'NORTE' : toast.zona === 'south' ? 'SUR' : toast.zona}
                         </span>
                       )}
                     </div>

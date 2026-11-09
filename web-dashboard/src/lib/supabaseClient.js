@@ -1,5 +1,6 @@
 import { createClient } from '@supabase/supabase-js';
 import { DEFAULT_STATIONS, DEFAULT_ALERTS } from './defaultData.js';
+import { computePredictiveVectorFromForecast } from './hydrologyRules.js';
 
 // Lectura de variables de entorno con respaldo de clave pública (anon/publishable) para despliegue en Vercel
 const ENV_URL = import.meta.env.VITE_SUPABASE_URL || 'https://kofaoizeukbugvseckbq.supabase.co';
@@ -98,6 +99,7 @@ function broadcastAlertChange(eventType, newRecord, oldRecord) {
 function enrichStationModel(st) {
   const p90 = Number(st.umbral_3h_p90 ?? st.umbral_alerta_naranja ?? 2.0);
   const p99 = Number(st.umbral_3h_p99 ?? st.umbral_alerta_roja ?? 10.0);
+  const media = Number(st.precipitacion_media ?? 1.5);
   const altitud_msnm = Number(st.altitud_msnm ?? Math.max(85, Math.round((Number(st.longitud) + 74.15) * 1650)));
   const coef_escorrentia = Number(
     st.coef_escorrentia ??
@@ -109,10 +111,20 @@ function enrichStationModel(st) {
     Math.min(0.86, Math.max(0.28, (p90 / Math.max(p99, 0.5)) * 0.72)).toFixed(2)
   );
   const ventana_evacuacion_min = Number(st.ventana_evacuacion_min ?? Math.max(75, Math.round(210 - altitud_msnm / 28)));
+  const desviacion_estandar = Number(st.desviacion_estandar ?? (p90 * 0.42).toFixed(2));
+  const media_epoca_lluvias_mm = Number(st.media_epoca_lluvias_mm ?? (media * 1.42).toFixed(2));
+  const media_epoca_seca_mm = Number(st.media_epoca_seca_mm ?? (media * 0.68).toFixed(2));
+  const factor_estacional_bimodal = Number(
+    st.factor_estacional_bimodal ?? (media_epoca_lluvias_mm / Math.max(0.5, media_epoca_seca_mm)).toFixed(2)
+  );
 
   return {
     ...st,
     altitud_msnm,
+    desviacion_estandar,
+    media_epoca_lluvias_mm,
+    media_epoca_seca_mm,
+    factor_estacional_bimodal,
     umbral_3h_p90: p90,
     umbral_3h_p99: p99,
     api_critico_24h_mm,
@@ -157,11 +169,63 @@ export const supabase = {
           return { data: [], error: null };
         },
 
+        async upsert(recordOrArray) {
+          const items = Array.isArray(recordOrArray) ? recordOrArray : [recordOrArray];
+          try {
+            const res = await liveQuery.upsert(items).select();
+            if (res.error) {
+              const baseCols = [
+                'id',
+                'codigoestacion',
+                'zona_id',
+                'titulo_alerta',
+                'tipo_alerta',
+                'color_alerta',
+                'cuenca_sector',
+                'descripcion',
+                'estado_prioridad',
+                'precipitacion_registrada',
+                'revisado',
+                'fecha_evento',
+              ];
+              const compatItems = items.map((it) => {
+                const clean = {};
+                baseCols.forEach((k) => {
+                  if (it[k] !== undefined) clean[k] = it[k];
+                });
+                return clean;
+              });
+              await liveQuery.upsert(compatItems).select();
+            }
+          } catch (e) {
+            console.warn('[Supabase Live Upsert fallback]', e);
+          }
+
+          if (table === 'alertas_activas') {
+            const alerts = getLocalAlerts();
+            items.forEach((item) => {
+              const idx = alerts.findIndex(
+                (a) => String(a.id) === String(item.id) || String(a.codigoestacion) === String(item.codigoestacion)
+              );
+              if (idx !== -1) {
+                const oldRecord = { ...alerts[idx] };
+                alerts[idx] = { ...alerts[idx], ...item };
+                broadcastAlertChange('UPDATE', alerts[idx], oldRecord);
+              } else {
+                alerts.unshift(item);
+                broadcastAlertChange('INSERT', item, null);
+              }
+            });
+            saveLocalAlerts(alerts);
+            return { data: items, error: null };
+          }
+          return { data: items, error: null };
+        },
+
         update(updates) {
           return {
             eq: async (column, value) => {
               try {
-                // Solo enviamos columnas existentes en el esquema PostgreSQL de Supabase
                 const dbCols = [
                   'codigoestacion',
                   'zona_id',
@@ -211,6 +275,28 @@ export const supabase = {
           return { data: getLocalAlerts(), error: null };
         }
         return { data: [], error: null };
+      },
+
+      async upsert(recordOrArray) {
+        const items = Array.isArray(recordOrArray) ? recordOrArray : [recordOrArray];
+        if (table === 'alertas_activas') {
+          const alerts = getLocalAlerts();
+          items.forEach((item) => {
+            const idx = alerts.findIndex(
+              (a) => String(a.id) === String(item.id) || String(a.codigoestacion) === String(item.codigoestacion)
+            );
+            if (idx !== -1) {
+              const oldRecord = { ...alerts[idx] };
+              alerts[idx] = { ...alerts[idx], ...item };
+              broadcastAlertChange('UPDATE', alerts[idx], oldRecord);
+            } else {
+              alerts.unshift(item);
+              broadcastAlertChange('INSERT', item, null);
+            }
+          });
+          saveLocalAlerts(alerts);
+        }
+        return { data: items, error: null };
       },
 
       update(updates) {
@@ -280,7 +366,7 @@ export const supabase = {
   }
 };
 
-// Consulta pronóstico satelital real en Open-Meteo por latitud y longitud exactas
+// Consulta pronóstico satelital real en Open-Meteo por latitud y longitud exactas (T+1h, T+3h y T+6h)
 export async function fetchOpenMeteoForecast(lat, lon) {
   try {
     const url = `https://api.open-meteo.com/v1/forecast?latitude=${Number(lat).toFixed(5)}&longitude=${Number(lon).toFixed(5)}&hourly=precipitation,precipitation_probability,soil_moisture_0_to_7cm&past_hours=6&forecast_hours=6&timezone=America%2FBogota`;
@@ -298,82 +384,78 @@ export async function fetchOpenMeteoForecast(lat, lon) {
 
     return {
       lluviaActualMm: pastPrecip.length ? Number(pastPrecip[pastPrecip.length - 1].toFixed(2)) : 0.0,
+      lluviaAntecedente6hMm: Number(pastPrecip.reduce((a, b) => a + b, 0).toFixed(2)),
+      pronostico1hMm: Number(futurePrecip.slice(0, 1).reduce((a, b) => a + b, 0).toFixed(2)),
       pronostico3hMm: Number(futurePrecip.slice(0, 3).reduce((a, b) => a + b, 0).toFixed(2)),
       pronostico6hMm: Number(futurePrecip.slice(0, 6).reduce((a, b) => a + b, 0).toFixed(2)),
-      probabilidadPct: futureProb.length ? Math.max(...futureProb.slice(0, 3)) : 65,
-      saturacionSueloPct: soilAll.length ? Number((soilAll[soilAll.length - 1] * 100).toFixed(1)) : 52.0,
+      probabilidadPct: futureProb.length ? Math.max(...futureProb.slice(0, 3)) : 35,
+      saturacionSueloPct: soilAll.length ? Number((soilAll[soilAll.length - 1] * 100).toFixed(1)) : 48.0,
     };
   } catch {
     return {
-      lluviaActualMm: 0.2,
+      lluviaActualMm: 0.0,
+      lluviaAntecedente6hMm: 0.4,
+      pronostico1hMm: 0.4,
       pronostico3hMm: 1.4,
       pronostico6hMm: 2.8,
-      probabilidadPct: 72,
-      saturacionSueloPct: 54.0,
+      probabilidadPct: 45,
+      saturacionSueloPct: 49.0,
     };
   }
 }
 
-// Proyección de vector predictivo T+3h / T+6h (Open-Meteo + Modelo Spark)
-export async function simulateKafkaPeak(stationCode, forceP99 = true, baseStation = null) {
+// Evaluación determinista en vivo (Open-Meteo + Modelo Estacional Spark via hydrologyRules.js)
+// Por defecto (stressTest = false) usa 100% los datos reales de Open-Meteo sin multiplicadores arbitrarios
+export async function simulateKafkaPeak(stationCode, stressTest = false, baseStation = null) {
   const stations = getLocalStations().map(enrichStationModel);
   const found = baseStation ? enrichStationModel(baseStation) : stations.find(s => String(s.codigoestacion) === String(stationCode));
   if (!found) return null;
 
   const forecast = await fetchOpenMeteoForecast(found.latitud, found.longitud);
+  const vec = computePredictiveVectorFromForecast(found, forecast, { stressTest });
 
-  const isNorth = found.latitud >= 7.0;
-  const alertId = isNorth ? 1 : 2;
-  const zona_id = isNorth ? 'north' : 'south';
-
-  const p90 = found.umbral_3h_p90;
-  const p99 = found.umbral_3h_p99;
-  const coefEsc = found.coef_escorrentia;
-  const ventanaEvac = found.ventana_evacuacion_min;
-
-  const targetPrecip3h = forceP99
-    ? Number((p99 * 1.12 + forecast.pronostico3hMm * coefEsc).toFixed(1))
-    : Number(((p90 + p99) * 0.52 + forecast.pronostico3hMm * coefEsc).toFixed(1));
-  const targetPrecip6h = Number((targetPrecip3h * 1.24 + forecast.pronostico6hMm * coefEsc).toFixed(1));
-
-  const probPct = forceP99
-    ? Math.min(99, Math.max(88, Math.round(found.prob_transicion_exceso * 50 + 48)))
-    : Math.min(91, Math.max(74, Math.round(found.prob_transicion_exceso * 45 + 36)));
-
-  const soilPct = forceP99
-    ? Math.max(72.5, forecast.saturacionSueloPct)
-    : Math.max(61.0, forecast.saturacionSueloPct);
-
-  const alertType = forceP99 ? 'ALERTA CRÍTICA' : 'VIGILANCIA';
-  const alertColor = forceP99 ? 'red' : 'orange';
-  const priority = forceP99
-    ? `Evacuación Preventiva / Ventana ${ventanaEvac} min (Horizonte T+3h)`
-    : `Vigilancia Predictiva / Ventana ${ventanaEvac} min (Horizonte T+3h)`;
+  const codStr = String(found.codigoestacion);
+  const alertId = Number(codStr);
+  const zona_id = `${found.zonahidrografica} | ${found.municipio}`;
+  const isCritical = vec.status.color === 'red';
+  const isSurveillance = vec.status.color === 'orange';
 
   const payload = {
-    codigoestacion: String(found.codigoestacion),
+    id: alertId,
+    codigoestacion: codStr,
+    nombreestacion: found.nombreestacion,
+    municipio: found.municipio,
+    latitud: Number(found.latitud),
+    longitud: Number(found.longitud),
     zona_id,
-    titulo_alerta: forceP99
-      ? `Predicción T+3h: Riesgo de desbordamiento (${probPct}% prob.)`
-      : `Predicción T+3h: Saturación y lluvia entrante (${probPct}% prob.)`,
-    tipo_alerta: alertType,
-    color_alerta: alertColor,
-    cuenca_sector: `Cuenca ${found.zonahidrografica} (${found.municipio})`,
-    descripcion: `Estación ${found.nombreestacion} [Lat ${found.latitud.toFixed(4)}, Lon ${found.longitud.toFixed(4)}]: Volumen proyectado a T+3h de ${targetPrecip3h} mm supera ${forceP99 ? `Umbral 3h P99 (${p99} mm)` : `Umbral 3h P90 (${p90} mm)`}. Saturación de suelo: ${soilPct}% | Coef. escorrentía Spark: ${coefEsc} | Ventana de evacuación: ${ventanaEvac} min.`,
-    estado_prioridad: priority,
-    precipitacion_registrada: targetPrecip3h,
-    volumen_proyectado_3h_mm: targetPrecip3h,
-    volumen_proyectado_6h_mm: targetPrecip6h,
-    probabilidad_desbordamiento_pct: probPct,
-    saturacion_suelo_pct: soilPct,
-    ventana_evacuacion_min: ventanaEvac,
-    lluvia_actual_mm: forecast.lluviaActualMm,
-    revisado: false,
+    titulo_alerta: `Pronóstico T+3h: ${vec.pronostico3hMm} mm (${vec.probabilidadDesbordamientoPct}% prob. desborde)`,
+    tipo_alerta: vec.status.type,
+    color_alerta: vec.status.color,
+    cuenca_sector: `Cuenca ${found.zonahidrografica} · ${found.municipio}`,
+    descripcion: `${vec.contrastBanner}. Horizontes: T+1h=${vec.pronostico1hMm} mm | T+3h=${vec.pronostico3hMm} mm | T+6h=${vec.pronostico6hMm} mm. Umbral 3h P90=${found.umbral_3h_p90} mm, P99=${found.umbral_3h_p99} mm | Saturación suelo: ${vec.saturacionSueloPct}% | Factor estacional Spark: ${vec.factorEstacionalBimodal}x | Ventana evacuación: ${vec.ventanaEvacuacionMin} min.`,
+    estado_prioridad: isCritical
+      ? `Evacuación Preventiva · Ventana ${vec.ventanaEvacuacionMin} min (T+1h: ${vec.pronostico1hMm} mm -> T+3h: ${vec.pronostico3hMm} mm)`
+      : isSurveillance
+        ? `Vigilancia Predictiva · Ventana ${vec.ventanaEvacuacionMin} min (T+1h: ${vec.pronostico1hMm} mm -> T+3h: ${vec.pronostico3hMm} mm)`
+        : `Cuenca dentro de capacidad normal (T+3h: ${vec.pronostico3hMm} mm < P90: ${found.umbral_3h_p90} mm)`,
+    lluvia_actual_mm: vec.lluviaActualMm,
+    pronostico_1h_mm: vec.pronostico1hMm,
+    pronostico_3h_mm: vec.pronostico3hMm,
+    pronostico_6h_mm: vec.pronostico6hMm,
+    probabilidad_lluvia_pct: vec.probabilidadLluviaPct,
+    probabilidad_desbordamiento_pct: vec.probabilidadDesbordamientoPct,
+    saturacion_suelo_pct: vec.saturacionSueloPct,
+    saturacion_antecedente_mm: vec.saturacionAntecedenteMm,
+    ventana_evacuacion_min: vec.ventanaEvacuacionMin,
+    precipitacion_registrada: vec.pronostico3hMm,
+    volumen_proyectado_3h_mm: vec.pronostico3hMm,
+    volumen_proyectado_6h_mm: vec.pronostico6hMm,
+    revisado: !isCritical && !isSurveillance,
     fecha_evento: new Date().toISOString()
   };
 
-  const result = await supabase.from('alertas_activas').update(payload).eq('id', alertId);
-  return { payload, alertId, result };
+  const result = await supabase.from('alertas_activas').upsert(payload);
+  return { payload, alertId, result, vec };
 }
 
 // Reiniciar a valores iniciales
@@ -383,7 +465,6 @@ export function resetDefaultAlerts() {
   }
   const alerts = DEFAULT_ALERTS;
   saveLocalAlerts(alerts);
-  broadcastAlertChange('UPDATE', alerts[0], null);
-  broadcastAlertChange('UPDATE', alerts[1], null);
+  alerts.forEach((a) => broadcastAlertChange('UPDATE', a, null));
   return alerts;
 }

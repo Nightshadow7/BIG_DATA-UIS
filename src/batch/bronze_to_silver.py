@@ -1,5 +1,6 @@
 import os
 import sys
+import socket
 import shutil
 import boto3
 import pyarrow as pa
@@ -14,27 +15,39 @@ load_dotenv(override=False)
 os.environ["PYSPARK_PYTHON"] = sys.executable
 os.environ["PYSPARK_DRIVER_PYTHON"] = sys.executable
 
-MINIO_ENDPOINT = os.getenv("MINIO_ENDPOINT", "http://localhost:9000")
 MINIO_USER = os.getenv("MINIO_ROOT_USER", "admin")
 MINIO_PASSWORD = os.getenv("MINIO_ROOT_PASSWORD", "minioadmin123")
+
+
+def get_minio_endpoint():
+    """Autodetecta si el script se ejecuta dentro de Docker (minio:9000) o en el host local (localhost:9000)."""
+    env_endpoint = os.getenv("MINIO_ENDPOINT")
+    if env_endpoint:
+        return env_endpoint
+    try:
+        socket.gethostbyname("minio")
+        return "http://minio:9000"
+    except socket.gaierror:
+        return "http://localhost:9000"
 
 
 def get_s3_client():
     return boto3.client(
         "s3",
-        endpoint_url=MINIO_ENDPOINT,
+        endpoint_url=get_minio_endpoint(),
         aws_access_key_id=MINIO_USER,
         aws_secret_access_key=MINIO_PASSWORD,
     )
 
 
 def run_bronze_to_silver():
+    endpoint = get_minio_endpoint()
     s3 = get_s3_client()
     os.makedirs("data/full_dataset", exist_ok=True)
     local_raw_path = "data/full_dataset/ideam_raw_2000_onwards.csv"
     local_cat_path = "data/full_dataset/ideam_catalogo_estaciones_raw.csv"
 
-    print("[1/4] Recuperando series de precipitación (s54a-sgyg) y Catálogo de Estaciones (hp9r-jxuu) desde MinIO (bronce)...")
+    print(f"[1/4] Recuperando series de precipitación (s54a-sgyg) y Catálogo de Estaciones (hp9r-jxuu) desde MinIO ({endpoint})...")
     s3.download_file("bronce", "ideam_raw_2000_onwards.csv", local_raw_path)
 
     has_catalog = False
@@ -63,7 +76,7 @@ def run_bronze_to_silver():
         .csv(local_raw_path)
     )
 
-    print("[3/4] Aplicando reglas de Veracidad (Limpieza >= año 2000), cruce con hp9r-jxuu y Esquema Formal...")
+    print("[3/4] Aplicando reglas de Veracidad (Limpieza >= año 2000), régimen estacional y cruce con hp9r-jxuu...")
     df_clean = (
         df
         .withColumn("codigoestacion", F.trim(F.col("codigoestacion").cast("string")))
@@ -73,6 +86,13 @@ def run_bronze_to_silver():
         .withColumn("fecha_ts", F.to_timestamp(F.col("fechaobservacion")))
         .withColumn("anio", F.year(F.col("fecha_ts")))
         .withColumn("mes", F.month(F.col("fecha_ts")))
+        .withColumn("trimestre", F.quarter(F.col("fecha_ts")))
+        .withColumn(
+            "epoca_hidrologica",
+            F.when(F.col("mes").isin(4, 5, 10, 11), F.lit("EPOCA_LLUVIAS"))
+            .when(F.col("mes").isin(1, 2, 7, 8), F.lit("EPOCA_SECA"))
+            .otherwise(F.lit("TRANSICION"))
+        )
         .filter(
             (F.col("fecha_ts").isNotNull()) &
             (F.col("anio") >= 2000) &
@@ -125,7 +145,8 @@ def run_bronze_to_silver():
     total_in = df.count()
     df_clean_pd = df_clean.toPandas()
     total_out = len(df_clean_pd)
-    print(f"      Registros crudos: {total_in} | Registros limpios y cruzados (>= 2000): {total_out}")
+    anios_unicos = sorted(df_clean_pd["anio"].unique().tolist())
+    print(f"      Registros crudos: {total_in} | Registros limpios (>= 2000): {total_out} | Años cubiertos: {anios_unicos[0]}..{anios_unicos[-1]} ({len(anios_unicos)} particiones anuales)")
 
     silver_output_dir = "data/full_dataset/plata_parquet"
     if os.path.exists(silver_output_dir):
@@ -139,7 +160,8 @@ def run_bronze_to_silver():
     )
 
     os.makedirs("data/processed_sample", exist_ok=True)
-    df_sample_pd = df_clean_pd.head(50)
+    step = max(1, len(df_clean_pd) // 50)
+    df_sample_pd = df_clean_pd.iloc[::step].head(50)
     df_sample_pd.to_parquet("data/processed_sample/ideam_plata_sample.parquet", index=False)
     df_sample_pd.to_csv("data/processed_sample/ideam_plata_sample.csv", index=False)
 

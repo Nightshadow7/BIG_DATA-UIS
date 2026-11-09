@@ -78,7 +78,7 @@ services:
     ports:
       - "5173:5173"
     environment:
-      - VITE_SUPABASE_URL=${SUPABASE_URL:-https://kofaoizeukbugvseckbq.supabase.co}
+      - VITE_SUPABASE_URL=${VITE_SUPABASE_URL:-https://kofaoizeukbugvseckbq.supabase.co}
       - VITE_SUPABASE_ANON_KEY=${VITE_SUPABASE_ANON_KEY:-sb_publishable_d60Z7EQtdyW6llHX7B_vyw_8aTF96qt}
     volumes:
       - ../web-dashboard:/app

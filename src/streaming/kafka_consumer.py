@@ -45,6 +45,35 @@ def persist_sample(processed_events):
         json.dump(recent, f, ensure_ascii=False, indent=2)
 
 
+def upsert_station_alert(supabase, payload):
+    """
+    Persiste la alerta asociada al ID único de la estación (int(codigoestacion)) y su cuenca real,
+    evitando sobrescribir todo en 2 únicas filas (Norte/Sur). Intenta primero el esquema extendido
+    con columnas predictivas separadas y hace fallback limpio si la tabla remota no ha sido migrada.
+    """
+    if not supabase:
+        return
+    try:
+        supabase.table("alertas_activas").upsert(payload).execute()
+    except Exception:
+        compat_cols = [
+            "id",
+            "zona_id",
+            "codigoestacion",
+            "titulo_alerta",
+            "tipo_alerta",
+            "color_alerta",
+            "cuenca_sector",
+            "descripcion",
+            "estado_prioridad",
+            "precipitacion_registrada",
+            "revisado",
+            "fecha_evento",
+        ]
+        compat_payload = {k: payload[k] for k in compat_cols if k in payload}
+        supabase.table("alertas_activas").upsert(compat_payload).execute()
+
+
 def run_consumer(max_messages=None):
     thresholds = load_gold_thresholds()
     broker = get_kafka_broker()
@@ -55,7 +84,7 @@ def run_consumer(max_messages=None):
 
     mode_str = f"lote de {max_messages} eventos" if max_messages else "escucha continua en vivo (Ctrl+C para detener)"
     print(f"[Consumidor Predictivo Kafka] Conectado a {broker} | Grupo: '{GROUP_ID}'")
-    print(f"[Consumidor Predictivo Kafka] Evaluando predicciones T+3h/T+6h en '{TOPIC_NAME}' ({mode_str})...\n")
+    print(f"[Consumidor Predictivo Kafka] Evaluando predicciones T+1h/T+3h/T+6h en '{TOPIC_NAME}' ({mode_str})...\n")
 
     consumer = KafkaConsumer(
         TOPIC_NAME,
@@ -82,10 +111,13 @@ def run_consumer(max_messages=None):
             if not ref:
                 continue
 
+            prediccion_1h = float(evento.get("volumen_proyectado_1h_mm", round(float(evento["valorobservado"]) * 0.35, 2)))
             prediccion_3h = float(evento["valorobservado"])
             prediccion_6h = float(evento.get("volumen_proyectado_6h_mm", prediccion_3h))
             lluvia_actual = float(evento.get("lluvia_actual_mm", 0.0))
-            prob_desborde = int(evento.get("probabilidad_desbordamiento_pct", evento.get("probabilidad_lluvia_pct", 75)))
+            sat_ant_mm = float(evento.get("saturacion_antecedente_mm", 0.0))
+            prob_lluvia = int(evento.get("probabilidad_lluvia_pct", 50))
+            prob_desborde = int(evento.get("probabilidad_desbordamiento_pct", prob_lluvia))
             saturacion_suelo = float(evento.get("saturacion_suelo_pct", 45.0))
             ventana_evac = int(evento.get("ventana_evacuacion_min", ref.get("ventana_evacuacion_min", 150)))
             lat = float(evento["latitud"])
@@ -94,64 +126,83 @@ def run_consumer(max_messages=None):
             p90_3h = float(ref.get("umbral_3h_p90", ref["umbral_alerta_naranja"]))
             p99_3h = float(ref.get("umbral_3h_p99", ref["umbral_alerta_roja"]))
             coef_esc = float(ref.get("coef_escorrentia", 0.65))
+            factor_estacional = float(ref.get("factor_estacional_bimodal", 1.25))
             volumen_evaluado = max(prediccion_3h, round(prediccion_6h * 0.9, 2))
+
+            # Identificador único de estación y su cuenca real (sin sobrescribir 2 únicas filas Norte/Sur)
+            station_alert_id = int(cod)
+            real_basin_zone = f"{evento['zonahidrografica']} | {evento['municipio']}"
+            estado_lluvia_t0 = "Sin lluvia actual" if lluvia_actual < 0.5 else f"{lluvia_actual} mm en curso"
 
             if prediccion_3h >= p99_3h or volumen_evaluado >= p99_3h:
                 nivel = "ALERTA CRÍTICA"
                 color = "red"
-                zona_id = "north"
-                alerta_id = 1
-                titulo = f"Predicción T+3h/T+6h: Riesgo de desbordamiento ({prob_desborde}% prob.)"
-                prioridad = f"Evacuación Preventiva / Ventana {ventana_evac} min (Horizonte T+3h)"
+                publicar = True
+                titulo = f"Pronóstico T+3h: {prediccion_3h} mm ({prob_desborde}% prob. desborde)"
+                prioridad = f"Evacuación Preventiva · Ventana {ventana_evac} min (T+1h: {prediccion_1h} mm -> T+3h: {prediccion_3h} mm)"
                 descripcion = (
-                    f"Estación {evento['nombreestacion']} [Lat {lat:.4f}, Lon {lon:.4f}]: "
-                    f"Volumen proyectado T+3h={prediccion_3h} mm (T+6h={prediccion_6h} mm) supera Umbral 3h P99 ({p99_3h} mm). "
-                    f"Saturación suelo: {saturacion_suelo}% | Coef. escorrentía Spark: {coef_esc} | Lluvia actual: {lluvia_actual} mm."
+                    f"Lluvia actual (T0): {lluvia_actual} mm ({estado_lluvia_t0}) -> "
+                    f"Pronóstico T+1h: {prediccion_1h} mm | T+3h: {prediccion_3h} mm | T+6h: {prediccion_6h} mm "
+                    f"(Probabilidad {prob_desborde}% - Desbordamiento Inminente). "
+                    f"Supera Umbral 3h P99 ({p99_3h} mm). Saturación suelo: {saturacion_suelo}% | "
+                    f"Factor estacional Spark: {factor_estacional}x | Coef. escorrentía: {coef_esc}."
                 )
             elif prediccion_3h >= p90_3h or prediccion_6h >= p90_3h:
                 nivel = "VIGILANCIA"
                 color = "orange"
-                zona_id = "south"
-                alerta_id = 2
-                titulo = f"Predicción T+3h/T+6h: Saturación y lluvia entrante ({prob_desborde}% prob.)"
-                prioridad = f"Vigilancia Predictiva / Ventana {ventana_evac} min (Horizonte T+3h/T+6h)"
+                publicar = True
+                titulo = f"Pronóstico T+3h/T+6h: {max(prediccion_3h, prediccion_6h)} mm ({prob_desborde}% prob.)"
+                prioridad = f"Vigilancia Predictiva · Ventana {ventana_evac} min (T+1h: {prediccion_1h} mm -> T+3h: {prediccion_3h} mm)"
                 descripcion = (
-                    f"Estación {evento['nombreestacion']} [Lat {lat:.4f}, Lon {lon:.4f}]: "
-                    f"Volumen proyectado T+3h={prediccion_3h} mm / T+6h={prediccion_6h} mm supera Umbral 3h P90 ({p90_3h} mm). "
-                    f"Saturación suelo: {saturacion_suelo}% | Lluvia actual: {lluvia_actual} mm."
+                    f"Lluvia actual (T0): {lluvia_actual} mm ({estado_lluvia_t0}) -> "
+                    f"Pronóstico T+1h: {prediccion_1h} mm | T+3h: {prediccion_3h} mm | T+6h: {prediccion_6h} mm "
+                    f"(Probabilidad {prob_desborde}% - Vigilancia Activa). "
+                    f"Supera Umbral 3h P90 ({p90_3h} mm). Saturación suelo: {saturacion_suelo}%."
                 )
             else:
                 nivel = "NORMAL"
                 color = "green"
-                zona_id = "none"
-                alerta_id = None
+                publicar = False
                 titulo = "Pronóstico T+3h/T+6h dentro de capacidad de cuenca"
                 prioridad = "Sin riesgo de desbordamiento proyectado"
-                descripcion = f"Proyección acumulada T+3h ({prediccion_3h} mm) y T+6h ({prediccion_6h} mm) inferior al umbral 3h P90 ({p90_3h} mm)."
+                descripcion = f"Proyección T+3h ({prediccion_3h} mm) y T+6h ({prediccion_6h} mm) inferior al umbral 3h P90 ({p90_3h} mm)."
 
             print(
-                f"  <- [{nivel}] {evento['municipio']} (Lat:{lat:.3f}, Lon:{lon:.3f}) | "
-                f"T+3h: {prediccion_3h} mm | T+6h: {prediccion_6h} mm (3h-P90={p90_3h}, 3h-P99={p99_3h} | "
-                f"Desborde: {prob_desborde}%, Evac: {ventana_evac} min)"
+                f"  <- [{nivel}] {evento['municipio']} [{cod}] (Lat:{lat:.3f}, Lon:{lon:.3f}) | "
+                f"T0: {lluvia_actual} mm -> T+1h: {prediccion_1h} mm | T+3h: {prediccion_3h} mm | T+6h: {prediccion_6h} mm "
+                f"(3h-P90={p90_3h}, 3h-P99={p99_3h} | Desborde: {prob_desborde}%, Evac: {ventana_evac} min)"
             )
 
-            if alerta_id and supabase:
+            if publicar and supabase:
                 payload = {
-                    "id": alerta_id,
-                    "zona_id": zona_id,
+                    "id": station_alert_id,
+                    "zona_id": real_basin_zone,
                     "codigoestacion": cod,
+                    "nombreestacion": evento["nombreestacion"],
+                    "municipio": evento["municipio"],
+                    "latitud": lat,
+                    "longitud": lon,
                     "titulo_alerta": titulo,
                     "tipo_alerta": nivel,
                     "color_alerta": color,
-                    "cuenca_sector": f"Cuenca {evento['zonahidrografica']} ({evento['municipio']})",
+                    "cuenca_sector": f"Cuenca {evento['zonahidrografica']} · {evento['municipio']}",
                     "descripcion": descripcion,
                     "estado_prioridad": prioridad,
-                    "precipitacion_registrada": prediccion_3h,
+                    "lluvia_actual_mm": lluvia_actual,
+                    "pronostico_1h_mm": prediccion_1h,
+                    "pronostico_3h_mm": prediccion_3h,
+                    "pronostico_6h_mm": prediccion_6h,
+                    "probabilidad_lluvia_pct": prob_lluvia,
+                    "probabilidad_desbordamiento_pct": prob_desborde,
+                    "saturacion_suelo_pct": saturacion_suelo,
+                    "saturacion_antecedente_mm": sat_ant_mm,
+                    "ventana_evacuacion_min": ventana_evac,
+                    "precipitacion_registrada": max(prediccion_3h, prediccion_6h) if prediccion_3h < p90_3h else prediccion_3h,
                     "revisado": False,
                     "fecha_evento": evento["fechaobservacion"]
                 }
-                supabase.table("alertas_activas").upsert(payload).execute()
-                print(f"     [Supabase Realtime] Predicción temprana '{zona_id}' publicada en vivo.")
+                upsert_station_alert(supabase, payload)
+                print(f"     [Supabase Realtime] Alerta de estación {cod} ({real_basin_zone}) publicada en vivo.")
 
             processed_events.append({
                 **evento,

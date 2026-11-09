@@ -4,6 +4,8 @@ import {
   evaluateAlertStatus,
   calculateP99Ratio,
   formatPrecipitation,
+  computePredictiveVectorFromForecast,
+  extractAlertMetrics,
   filterGoldStations,
   calculateKpis,
 } from './hydrologyRules.js';
@@ -40,6 +42,60 @@ test('calculateP99Ratio accurately returns percentage against P99 threshold', ()
 test('formatPrecipitation formats with mm unit', () => {
   assert.equal(formatPrecipitation(42.34), '42.3 mm');
   assert.equal(formatPrecipitation(0), '0.0 mm');
+});
+
+test('computePredictiveVectorFromForecast uses deterministic real Open-Meteo data without arbitrary multiplication by default', () => {
+  const station = {
+    codigoestacion: '23190130',
+    umbral_3h_p90: 10.4,
+    umbral_3h_p99: 35.0,
+    api_critico_24h_mm: 14.8,
+    coef_escorrentia: 0.785,
+    prob_transicion_exceso: 0.3402,
+    ventana_evacuacion_min: 145,
+    factor_estacional_bimodal: 1.35,
+  };
+  const forecast = {
+    lluviaActualMm: 0.0,
+    lluviaAntecedente6hMm: 0.0,
+    pronostico1hMm: 2.1,
+    pronostico3hMm: 6.9,
+    pronostico6hMm: 12.0,
+    probabilidadPct: 29,
+    saturacionSueloPct: 50.6,
+  };
+
+  const vecReal = computePredictiveVectorFromForecast(station, forecast, { stressTest: false, month: 10 });
+  assert.equal(vecReal.modoOperacion, 'REAL_OPEN_METEO_SPARK');
+  assert.ok(vecReal.pronostico3hMm < station.umbral_3h_p99);
+  assert.ok(vecReal.pronostico6hMm >= station.umbral_3h_p90);
+  assert.equal(vecReal.status.type, 'VIGILANCIA');
+
+  const vecStress = computePredictiveVectorFromForecast(station, forecast, { stressTest: true, month: 10 });
+  assert.equal(vecStress.modoOperacion, 'STRESS_TEST_DETERMINISTA');
+  assert.ok(vecStress.pronostico3hMm >= station.umbral_3h_p99);
+  assert.equal(vecStress.status.type, 'ALERTA CRÍTICA');
+});
+
+test('extractAlertMetrics builds T0 -> T+3h contrast string', () => {
+  const alert = {
+    lluvia_actual_mm: 0.0,
+    pronostico_1h_mm: 31.2,
+    pronostico_3h_mm: 94.2,
+    pronostico_6h_mm: 119.2,
+    probabilidad_desbordamiento_pct: 77,
+    saturacion_suelo_pct: 74.5,
+    ventana_evacuacion_min: 206,
+    color_alerta: 'red',
+    revisado: false,
+  };
+  const station = { umbral_3h_p90: 37.4, umbral_3h_p99: 83.2 };
+  const metrics = extractAlertMetrics(alert, station);
+  assert.equal(metrics.vol1h, 31.2);
+  assert.equal(metrics.vol3h, 94.2);
+  assert.equal(metrics.probDesbordePct, 77);
+  assert.ok(metrics.contrastText.includes('Lluvia actual: 0.0 mm'));
+  assert.ok(metrics.contrastText.includes('Pronóstico en 3 horas: 94.2 mm'));
 });
 
 test('filterGoldStations filters by search text and hydrological zone', () => {
@@ -118,9 +174,9 @@ test('calculateKpis computes total stations, maximum P99, and alert distribution
   const mockAlerts = [
     {
       id: 1,
-      zona_id: 'north',
+      zona_id: 'MEDIO MAGDALENA | BUCARAMANGA',
       codigoestacion: '1',
-      titulo_alerta: 'Alerta Norte',
+      titulo_alerta: 'Alerta 1',
       tipo_alerta: 'ALERTA CRÍTICA',
       color_alerta: 'red',
       cuenca_sector: 'Cuenca Lebrija',
@@ -132,9 +188,9 @@ test('calculateKpis computes total stations, maximum P99, and alert distribution
     },
     {
       id: 2,
-      zona_id: 'south',
+      zona_id: 'SOGAMOSO | SAN GIL',
       codigoestacion: '2',
-      titulo_alerta: 'Alerta Sur',
+      titulo_alerta: 'Alerta 2',
       tipo_alerta: 'ESCENARIO REVISADO',
       color_alerta: 'reviewed',
       cuenca_sector: 'Cuenca Fonce',

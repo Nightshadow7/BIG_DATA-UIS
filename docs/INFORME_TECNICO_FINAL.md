@@ -113,20 +113,22 @@ Posteriormente, `src/batch/bronze_to_silver.py` ejecuta cuatro etapas en PySpark
 3. **Deduplicacion:** Eliminacion de eventos repetidos sobre la llave compuesta `(codigoestacion, fechaobservacion)`.
 4. **Escritura particionada:** Almacenamiento en `s3a://plata/precipitaciones_limpias.parquet` particionado por `departamento` y `anio`, habilitando *partition pruning*.
 
-### 4.2. Modelo Hidrologico Predictivo en la Capa Oro (`src/batch/silver_to_gold.py`)
-A diferencia de un calculo estatico de observaciones aisladas, Apache Spark entrena para cada una de las 26 estaciones de Santander un modelo hidrologico basado en **funciones de ventana temporal sobre epoch (`rangeBetween`)** y **transicion condicional de Markov**:
+### 4.2. Modelo Hidrologico Predictivo y Estacionalidad Bimodal en la Capa Oro (`src/batch/silver_to_gold.py`)
+A diferencia de un calculo estatico de observaciones aisladas o de ventanas por conteo de filas (`rowsBetween`), Apache Spark entrena para cada estacion de Santander un modelo hidrologico basado en **normalizacion horaria previa (`date_trunc('hour', fecha_ts)`)**, **ventanas de tiempo exacto en segundos (`rangeBetween`)**, **estacionalidad bimodal andina** y **transicion condicional de Markov**:
 
-1. **Umbrales de Acumulacion Movil en Ventana de 3 Horas (`umbral_3h_p90` y `umbral_3h_p99`):**
-   Mediante `Window.partitionBy("codigoestacion").orderBy("ts_epoch").rangeBetween(-10800, 0)`, Spark calcula la lamina acumulada real en cada ventana movil de 3 horas ($R_{3\text{h}, t}$) y extrae los percentiles 90 y 99 de tormentas de 3 horas:
+1. **Normalizacion Horaria y Umbrales de Acumulacion en Ventana de 10.800 Segundos (`umbral_3h_p90` y `umbral_3h_p99`):**
+   Dado que las estaciones del IDEAM presentan frecuencias heterogeneas (lecturas cada 10 minutos, horarias o con saltos de dias sin reporte), el job primero consolida la serie en bloques horarios exactos (`date_trunc("hour", fecha_ts)`) y posteriormente aplica `Window.partitionBy("codigoestacion").orderBy("ts_epoch").rangeBetween(-10800, 0)` sobre la marca de tiempo Unix en segundos (`10800 s = 3 horas exactas`). De este modo nunca se suman lecturas de dias distintos y se obtienen los percentiles 90 y 99 reales de tormentas de 3 horas:
    $$\text{Umbral Vigilancia 3h } (P_{90, 3\text{h}}) = \text{percentile\_approx}(R_{3\text{h}, t}, 0.90), \quad \text{Umbral Desborde 3h } (P_{99, 3\text{h}}) = \text{percentile\_approx}(R_{3\text{h}, t}, 0.99)$$
-2. **Indice de Precipitacion Antecedente (`api_critico_24h_mm`, `api_critico_72h_mm`) y Coeficiente de Escorrentia (`coef_escorrentia`):**
+2. **Estacionalidad Bimodal Andina (`media_epoca_lluvias_mm`, `media_epoca_seca_mm`, `factor_estacional_bimodal`) y Desviacion Estandar (`desviacion_estandar`):**
+   Spark clasifica cada registro segun el regimen hidrologico bimodal de Santander —temporadas de lluvias en abril-mayo y octubre-noviembre frente a temporadas secas en enero-febrero y julio-agosto— y calcula las medias estacionales y el factor de modulacion bimodal (`factor_estacional_bimodal`), junto con la dispersion historica (`desviacion_estandar`).
+3. **Indice de Precipitacion Antecedente (`api_critico_24h_mm`, `api_critico_72h_mm`) y Coeficiente de Escorrentia (`coef_escorrentia`):**
    Mediante ventanas previas de 24 horas (`rangeBetween(-86400, -1)`) y 72 horas (`rangeBetween(-259200, -1)`), Spark determina la lamina de saturacion antecedente critica ($API_{24\text{h}}$) y calibra el coeficiente de escorrentia $C_{\text{esc}} \in [0.35, 0.92]$ en funcion de la altitud orografica (`altitud_msnm`) y la retencion del suelo.
-3. **Probabilidad Condicional de Transicion de Markov $\mathbb{P}(\text{Exceso}_{t+3\text{h}} \mid \text{Saturacion}_t)$ (`prob_transicion_exceso`) y Ventana de Evacuacion (`ventana_evacuacion_min`):**
+4. **Probabilidad Condicional de Transicion de Markov $\mathbb{P}(\text{Exceso}_{t+3\text{h}} \mid \text{Saturacion}_t)$ (`prob_transicion_exceso`) y Ventana de Evacuacion (`ventana_evacuacion_min`):**
    Evaluando la ventana futura de 3 horas (`rangeBetween(1, 10800)`), Spark estima la probabilidad condicional historica de que una microcuenca con suelo saturado supere el umbral de alerta en las siguientes 3 horas, junto con el tiempo de respuesta preventiva en minutos antes del pico de avenida torrencial.
 
-### 4.3. Resultados Reales de la Capa Oro (26 Estaciones Modeladas en Santander)
+### 4.3. Resultados Reales de la Capa Oro (Estaciones Modeladas en Santander)
 
-La siguiente tabla presenta el catalogo completo entrenado por PySpark en `s3a://oro/umbrales_estaciones_oro.parquet` y verificado en `data/processed_sample/ideam_oro_sample.csv`:
+La siguiente tabla presenta el catalogo de referencia entrenado por PySpark en `s3a://oro/umbrales_estaciones_oro.parquet` y verificado en `data/processed_sample/ideam_oro_sample.csv`:
 
 | Codigo IDEAM | Nombre de la Estacion | Municipio | Altitud (msnm) | Latitud | Longitud | 3h-P90 Naranja (mm) | 3h-P99 Roja (mm) | API 24h (mm) | Coef. Escorrentia | Markov P(Exceso\|Sat) | Ventana Evac. (min) |
 | :--- | :--- | :--- | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: |

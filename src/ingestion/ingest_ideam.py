@@ -1,5 +1,6 @@
 import os
 import io
+import socket
 import requests
 import pandas as pd
 import boto3
@@ -7,7 +8,6 @@ from dotenv import load_dotenv
 
 load_dotenv(override=False)
 
-MINIO_ENDPOINT = os.getenv("MINIO_ENDPOINT", "http://localhost:9000")
 MINIO_USER = os.getenv("MINIO_ROOT_USER", "admin")
 MINIO_PASSWORD = os.getenv("MINIO_ROOT_PASSWORD", "minioadmin123")
 
@@ -15,41 +15,100 @@ IDEAM_PRECIP_API_URL = "https://www.datos.gov.co/resource/s54a-sgyg.csv"
 IDEAM_CATALOG_API_URL = "https://www.datos.gov.co/resource/hp9r-jxuu.csv"
 
 
+def get_minio_endpoint():
+    """Autodetecta si el script se ejecuta dentro de Docker (minio:9000) o en el host local (localhost:9000)."""
+    env_endpoint = os.getenv("MINIO_ENDPOINT")
+    if env_endpoint:
+        return env_endpoint
+    try:
+        socket.gethostbyname("minio")
+        return "http://minio:9000"
+    except socket.gaierror:
+        return "http://localhost:9000"
+
+
 def get_s3_client():
     return boto3.client(
         "s3",
-        endpoint_url=MINIO_ENDPOINT,
+        endpoint_url=get_minio_endpoint(),
         aws_access_key_id=MINIO_USER,
         aws_secret_access_key=MINIO_PASSWORD,
     )
 
 
-def fetch_ideam_batch(limit=150000, departamento="SANTANDER"):
-    """Descarga registros pluviométricos (s54a-sgyg) desde el año 2000 en adelante."""
-    print(f"[1/4] Descargando serie histórica de precipitación (s54a-sgyg, >= año 2000) para {departamento}...")
-    where_clause = (
-        f"fechaobservacion >= '2000-01-01T00:00:00.000' "
-        f"AND valorobservado IS NOT NULL "
-        f"AND upper(departamento) = '{departamento.upper()}'"
+def fetch_ideam_paginated_strata(departamento="SANTANDER", rows_per_stratum=15000):
+    """
+    Descarga registros pluviométricos (s54a-sgyg) mediante paginación por bloques ($limit / $offset)
+    sobre puntos de partida históricos desde el año 2000 hasta la actualidad,
+    evitando el truncamiento de una única petición sin $offset.
+    """
+    print(
+        f"[1/4] Descargando serie histórica paginada ($limit / $offset, 2000-2026) para {departamento}...",
+        flush=True,
     )
-    params = {
-        "$limit": limit,
-        "$where": where_clause,
-        "$order": "fechaobservacion DESC"
-    }
-    response = requests.get(IDEAM_PRECIP_API_URL, params=params, timeout=120)
-    response.raise_for_status()
-    df = pd.read_csv(io.StringIO(response.text))
-    print(f"      Registros de precipitación descargados (>= 2000): {len(df)}")
-    return df
+    year_Anchors = [
+        ("2000-01-01T00:00:00.000", "Bloque 2000+"),
+        ("2010-01-01T00:00:00.000", "Bloque 2010+"),
+        ("2016-01-01T00:00:00.000", "Bloque 2016+"),
+        ("2020-01-01T00:00:00.000", "Bloque 2020+"),
+        ("2023-01-01T00:00:00.000", "Bloque 2023+"),
+    ]
+
+    frames = []
+    page_size = 7500
+
+    for start_iso, label in year_Anchors:
+        collected_in_stratum = 0
+        offset = 0
+        while collected_in_stratum < rows_per_stratum:
+            batch_limit = min(page_size, rows_per_stratum - collected_in_stratum)
+            where_clause = (
+                f"fechaobservacion >= '{start_iso}' "
+                f"AND valorobservado IS NOT NULL "
+                f"AND upper(departamento) = '{departamento.upper()}'"
+            )
+            params = {
+                "$limit": batch_limit,
+                "$offset": offset,
+                "$where": where_clause,
+            }
+            try:
+                response = requests.get(IDEAM_PRECIP_API_URL, params=params, timeout=30)
+                response.raise_for_status()
+                df_page = pd.read_csv(io.StringIO(response.text))
+            except Exception as exc:
+                print(f"      Aviso en {label} (offset={offset}): {exc}", flush=True)
+                break
+
+            if df_page.empty:
+                break
+
+            frames.append(df_page)
+            rows_got = len(df_page)
+            collected_in_stratum += rows_got
+            offset += rows_got
+            if rows_got < batch_limit:
+                break
+
+        print(f"      {label}: {collected_in_stratum} registros recuperados (offset final={offset}).", flush=True)
+
+    if not frames:
+        raise RuntimeError("No se pudieron descargar registros desde s54a-sgyg.")
+
+    df_all = pd.concat(frames, ignore_index=True).drop_duplicates(
+        subset=["codigoestacion", "fechaobservacion"]
+    )
+    print(f"      Total consolidado sin duplicados (2000-2026): {len(df_all)} registros.")
+    return df_all
 
 
 def fetch_ideam_stations_catalog(departamento="SANTANDER", df_precip_fallback=None):
-    """Descarga el Catálogo Nacional de Estaciones del IDEAM (hp9r-jxuu) para cruce geodésico y altitudinal."""
+    """Descarga el Catálogo Nacional de Estaciones del IDEAM (hp9r-jxuu) con paginación completa."""
     print(f"[2/4] Descargando Catálogo Nacional de Estaciones del IDEAM (hp9r-jxuu) para {departamento}...")
     try:
         params = {
             "$limit": 5000,
+            "$offset": 0,
             "$where": f"upper(departamento) like '%{departamento.upper()}%'"
         }
         response = requests.get(IDEAM_CATALOG_API_URL, params=params, timeout=60)
@@ -77,11 +136,16 @@ def fetch_ideam_stations_catalog(departamento="SANTANDER", df_precip_fallback=No
 
 
 def save_raw_samples(df_precip, df_catalog, sample_size=50):
-    """Guarda las muestras crudas verificables (20 a 100 registros) para el repositorio."""
+    """Guarda las muestras crudas verificables (50 registros estratificados) para el repositorio."""
     os.makedirs("data/raw_sample", exist_ok=True)
     precip_sample_path = "data/raw_sample/ideam_precipitacion_raw_sample.csv"
-    df_precip.head(sample_size).to_csv(precip_sample_path, index=False, encoding="utf-8")
-    print(f"[3/4] Muestra cruda de precipitación ({sample_size} filas) guardada en: {precip_sample_path}")
+    if len(df_precip) > sample_size:
+        step = max(1, len(df_precip) // sample_size)
+        df_sample = df_precip.iloc[::step].head(sample_size)
+    else:
+        df_sample = df_precip.head(sample_size)
+    df_sample.to_csv(precip_sample_path, index=False, encoding="utf-8")
+    print(f"[3/4] Muestra cruda estratificada de precipitación ({len(df_sample)} filas) guardada en: {precip_sample_path}")
 
     if df_catalog is not None and not df_catalog.empty:
         cat_sample_path = "data/raw_sample/ideam_catalogo_estaciones_sample.csv"
@@ -91,6 +155,7 @@ def save_raw_samples(df_precip, df_catalog, sample_size=50):
 
 def upload_to_minio_bronze(df, object_name):
     """Sube un dataframe crudo al bucket 'bronce' en MinIO."""
+    endpoint = get_minio_endpoint()
     s3 = get_s3_client()
     csv_buffer = io.BytesIO()
     df.to_csv(csv_buffer, index=False, encoding="utf-8")
@@ -102,11 +167,11 @@ def upload_to_minio_bronze(df, object_name):
         Body=csv_buffer.getvalue(),
         ContentType="text/csv"
     )
-    print(f"[4/4] Objeto almacenado en MinIO -> s3://bronce/{object_name}")
+    print(f"[4/4] Objeto almacenado en MinIO ({endpoint}) -> s3://bronce/{object_name}")
 
 
 if __name__ == "__main__":
-    df_raw = fetch_ideam_batch(limit=150000, departamento="SANTANDER")
+    df_raw = fetch_ideam_paginated_strata(departamento="SANTANDER", rows_per_stratum=15000)
     df_catalog = fetch_ideam_stations_catalog(departamento="SANTANDER", df_precip_fallback=df_raw)
     save_raw_samples(df_raw, df_catalog, sample_size=50)
     upload_to_minio_bronze(df_raw, object_name="ideam_raw_2000_onwards.csv")
