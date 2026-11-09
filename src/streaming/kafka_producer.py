@@ -35,6 +35,7 @@ def run_producer(num_events=15, delay_seconds=2.0):
 
     producer = KafkaProducer(
         bootstrap_servers=[broker],
+        api_version=(3, 7, 0),
         key_serializer=lambda k: str(k).encode("utf-8"),
         value_serializer=lambda v: json.dumps(v, ensure_ascii=False).encode("utf-8"),
         acks="all"

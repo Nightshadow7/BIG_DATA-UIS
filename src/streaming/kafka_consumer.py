@@ -47,6 +47,7 @@ def run_consumer(max_messages=15):
         group_id=GROUP_ID,
         auto_offset_reset="earliest",
         enable_auto_commit=True,
+        api_version=(3, 7, 0),
         key_deserializer=lambda k: k.decode("utf-8") if k else None,
         value_deserializer=lambda v: json.loads(v.decode("utf-8"))
     )

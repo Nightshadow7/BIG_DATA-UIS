@@ -62,9 +62,24 @@ services:
       MINIO_ENDPOINT: http://minio:9000
       MINIO_ROOT_USER: ${MINIO_ROOT_USER:-admin}
       MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-minioadmin123}
+      KAFKA_BOOTSTRAP_SERVERS: kafka:29092
       SUPABASE_URL: ${SUPABASE_URL:-}
       SUPABASE_KEY: ${SUPABASE_KEY:-}
     volumes:
       - ../:/app
     profiles:
       - batch
+
+  web-dashboard:
+    build:
+      context: ../web-dashboard
+      dockerfile: Dockerfile
+    container_name: web-dashboard
+    ports:
+      - "5173:5173"
+    environment:
+      - VITE_SUPABASE_URL=${SUPABASE_URL:-https://kofaoizeukbugvseckbq.supabase.co}
+      - VITE_SUPABASE_ANON_KEY=${VITE_SUPABASE_ANON_KEY:-sb_publishable_d60Z7EQtdyW6llHX7B_vyw_8aTF96qt}
+    volumes:
+      - ../web-dashboard:/app
+      - /app/node_modules
