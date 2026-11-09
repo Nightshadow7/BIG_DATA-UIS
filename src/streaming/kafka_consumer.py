@@ -48,11 +48,29 @@ def persist_sample(processed_events):
 def upsert_station_alert(supabase, payload):
     """
     Persiste la alerta asociada al ID único de la estación (int(codigoestacion)) y su cuenca real,
-    evitando sobrescribir todo en 2 únicas filas (Norte/Sur). Intenta primero el esquema extendido
-    con columnas predictivas separadas y hace fallback limpio si la tabla remota no ha sido migrada.
+    evitando sobrescribir todo en 2 únicas filas (Norte/Sur). Verifica además que una alerta
+    crítica no revisada de la misma estación no sea degradada por un evento posterior de menor severidad.
     """
     if not supabase:
         return
+    try:
+        existing = (
+            supabase.table("alertas_activas")
+            .select("id,color_alerta,precipitacion_registrada,revisado")
+            .eq("id", payload["id"])
+            .execute()
+        )
+        if existing.data:
+            prev = existing.data[0]
+            if (
+                not prev.get("revisado", False)
+                and prev.get("color_alerta") == "red"
+                and payload.get("color_alerta") != "red"
+            ):
+                return
+    except Exception:
+        pass
+
     try:
         supabase.table("alertas_activas").upsert(payload).execute()
     except Exception:
@@ -127,50 +145,67 @@ def run_consumer(max_messages=None):
             p99_3h = float(ref.get("umbral_3h_p99", ref["umbral_alerta_roja"]))
             coef_esc = float(ref.get("coef_escorrentia", 0.65))
             factor_estacional = float(ref.get("factor_estacional_bimodal", 1.25))
-            volumen_evaluado = max(prediccion_3h, round(prediccion_6h * 0.9, 2))
+
+            # Proyección de tendencia a 6 horas (escalamiento vs desaceleración posterior a la ventana de 3h)
+            delta_3_a_6 = max(0.0, prediccion_6h - prediccion_3h)
+            tendencia_6h = evento.get("tendencia_6h")
+            if not tendencia_6h:
+                if delta_3_a_6 > prediccion_3h * 0.45 and prediccion_6h > prediccion_3h + 0.8:
+                    tendencia_6h = "ESCALAMIENTO SOSTENIDO (T+6h)"
+                elif delta_3_a_6 > prediccion_3h * 0.15:
+                    tendencia_6h = "PERSISTENCIA MODERADA (T+6h)"
+                else:
+                    tendencia_6h = "DESACELERACIÓN POST-PICO (T+6h)"
 
             # Identificador único de estación y su cuenca real (sin sobrescribir 2 únicas filas Norte/Sur)
             station_alert_id = int(cod)
             real_basin_zone = f"{evento['zonahidrografica']} | {evento['municipio']}"
-            estado_lluvia_t0 = "Sin lluvia actual" if lluvia_actual < 0.5 else f"{lluvia_actual} mm en curso"
+            estado_lluvia_t0 = "Sin lluvia" if lluvia_actual < 0.5 else f"{lluvia_actual} mm en curso"
 
-            if prediccion_3h >= p99_3h or volumen_evaluado >= p99_3h:
+            # Consistencia dimensional estricta: el umbral de 3 horas de la Capa Oro se contrasta contra la lluvia efectiva a 3 horas
+            if prediccion_3h >= p99_3h:
                 nivel = "ALERTA CRÍTICA"
                 color = "red"
                 publicar = True
                 titulo = f"Pronóstico T+3h: {prediccion_3h} mm ({prob_desborde}% prob. desborde)"
-                prioridad = f"Evacuación Preventiva · Ventana {ventana_evac} min (T+1h: {prediccion_1h} mm -> T+3h: {prediccion_3h} mm)"
+                prioridad = f"Evacuación Preventiva · Ventana {ventana_evac} min · {tendencia_6h}"
                 descripcion = (
                     f"Lluvia actual (T0): {lluvia_actual} mm ({estado_lluvia_t0}) -> "
                     f"Pronóstico T+1h: {prediccion_1h} mm | T+3h: {prediccion_3h} mm | T+6h: {prediccion_6h} mm "
                     f"(Probabilidad {prob_desborde}% - Desbordamiento Inminente). "
-                    f"Supera Umbral 3h P99 ({p99_3h} mm). Saturación suelo: {saturacion_suelo}% | "
-                    f"Factor estacional Spark: {factor_estacional}x | Coef. escorrentía: {coef_esc}."
+                    f"Tendencia: {tendencia_6h}. Supera Umbral 3h P99 ({p99_3h} mm) | "
+                    f"Saturación suelo: {saturacion_suelo}% | Coef. escorrentía: {coef_esc} | Factor estacional: {factor_estacional}x | "
+                    f"Ventana evacuación: {ventana_evac} min."
                 )
-            elif prediccion_3h >= p90_3h or prediccion_6h >= p90_3h:
+            elif prediccion_3h >= p90_3h:
                 nivel = "VIGILANCIA"
                 color = "orange"
                 publicar = True
-                titulo = f"Pronóstico T+3h/T+6h: {max(prediccion_3h, prediccion_6h)} mm ({prob_desborde}% prob.)"
-                prioridad = f"Vigilancia Predictiva · Ventana {ventana_evac} min (T+1h: {prediccion_1h} mm -> T+3h: {prediccion_3h} mm)"
+                titulo = f"Pronóstico T+3h: {prediccion_3h} mm ({prob_desborde}% prob. desborde)"
+                prioridad = f"Vigilancia Predictiva · Ventana {ventana_evac} min · {tendencia_6h}"
                 descripcion = (
                     f"Lluvia actual (T0): {lluvia_actual} mm ({estado_lluvia_t0}) -> "
                     f"Pronóstico T+1h: {prediccion_1h} mm | T+3h: {prediccion_3h} mm | T+6h: {prediccion_6h} mm "
                     f"(Probabilidad {prob_desborde}% - Vigilancia Activa). "
-                    f"Supera Umbral 3h P90 ({p90_3h} mm). Saturación suelo: {saturacion_suelo}%."
+                    f"Tendencia: {tendencia_6h}. Supera Umbral 3h P90 ({p90_3h} mm) | "
+                    f"Saturación suelo: {saturacion_suelo}% | Coef. escorrentía: {coef_esc} | "
+                    f"Ventana evacuación: {ventana_evac} min."
                 )
             else:
                 nivel = "NORMAL"
                 color = "green"
                 publicar = False
-                titulo = "Pronóstico T+3h/T+6h dentro de capacidad de cuenca"
-                prioridad = "Sin riesgo de desbordamiento proyectado"
-                descripcion = f"Proyección T+3h ({prediccion_3h} mm) y T+6h ({prediccion_6h} mm) inferior al umbral 3h P90 ({p90_3h} mm)."
+                titulo = "Pronóstico T+3h dentro de capacidad de cuenca"
+                prioridad = f"Sin riesgo de desbordamiento proyectado · {tendencia_6h}"
+                descripcion = (
+                    f"Proyección efectiva T+3h ({prediccion_3h} mm) inferior al umbral 3h P90 ({p90_3h} mm). "
+                    f"Proyección T+6h: {prediccion_6h} mm ({tendencia_6h})."
+                )
 
             print(
                 f"  <- [{nivel}] {evento['municipio']} [{cod}] (Lat:{lat:.3f}, Lon:{lon:.3f}) | "
                 f"T0: {lluvia_actual} mm -> T+1h: {prediccion_1h} mm | T+3h: {prediccion_3h} mm | T+6h: {prediccion_6h} mm "
-                f"(3h-P90={p90_3h}, 3h-P99={p99_3h} | Desborde: {prob_desborde}%, Evac: {ventana_evac} min)"
+                f"(3h-P90={p90_3h}, 3h-P99={p99_3h} | Desborde: {prob_desborde}%, Evac: {ventana_evac} min | {tendencia_6h})"
             )
 
             if publicar and supabase:
@@ -197,7 +232,7 @@ def run_consumer(max_messages=None):
                     "saturacion_suelo_pct": saturacion_suelo,
                     "saturacion_antecedente_mm": sat_ant_mm,
                     "ventana_evacuacion_min": ventana_evac,
-                    "precipitacion_registrada": max(prediccion_3h, prediccion_6h) if prediccion_3h < p90_3h else prediccion_3h,
+                    "precipitacion_registrada": prediccion_3h,
                     "revisado": False,
                     "fecha_evento": evento["fechaobservacion"]
                 }
@@ -206,6 +241,7 @@ def run_consumer(max_messages=None):
 
             processed_events.append({
                 **evento,
+                "tendencia_6h": tendencia_6h,
                 "umbral_3h_p90": p90_3h,
                 "umbral_3h_p99": p99_3h,
                 "clasificacion_predictiva": nivel,

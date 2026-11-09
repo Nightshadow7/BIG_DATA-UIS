@@ -103,19 +103,19 @@ def fetch_ideam_paginated_strata(departamento="SANTANDER", rows_per_stratum=1500
 
 
 def fetch_ideam_stations_catalog(departamento="SANTANDER", df_precip_fallback=None):
-    """Descarga el Catálogo Nacional de Estaciones del IDEAM (hp9r-jxuu) con paginación completa."""
-    print(f"[2/4] Descargando Catálogo Nacional de Estaciones del IDEAM (hp9r-jxuu) para {departamento}...")
+    """Descarga el Catálogo Nacional de Estaciones del IDEAM (hp9r-jxuu) filtrado para el departamento."""
+    print(f"[2/4] Descargando Catálogo Nacional de Estaciones del IDEAM (hp9r-jxuu) para {departamento}...", flush=True)
     try:
         params = {
             "$limit": 5000,
             "$offset": 0,
-            "$where": f"upper(departamento) like '%{departamento.upper()}%'"
+            "$where": f"upper(departamento) = '{departamento.upper()}'"
         }
         response = requests.get(IDEAM_CATALOG_API_URL, params=params, timeout=60)
         response.raise_for_status()
         df_cat = pd.read_csv(io.StringIO(response.text))
         if len(df_cat) > 0:
-            print(f"      Estaciones oficiales descargadas desde hp9r-jxuu: {len(df_cat)}")
+            print(f"      Estaciones oficiales descargadas desde hp9r-jxuu: {len(df_cat)}", flush=True)
             return df_cat
     except Exception as exc:
         print(f"      Aviso consultando hp9r-jxuu ({exc}); generando catálogo geodésico desde registros primarios.")

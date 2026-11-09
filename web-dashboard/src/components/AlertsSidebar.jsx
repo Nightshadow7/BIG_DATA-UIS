@@ -117,17 +117,28 @@ export default function AlertsSidebar({
                 </div>
               </div>
 
-              {/* Bloque de Contraste Explícito: Lluvia Actual T0 -> Pronóstico T+1h, T+3h, T+6h */}
-              <div className="rounded-xl bg-[#040f1a]/95 border border-cyan-500/30 p-2.5 mb-3 font-mono">
-                <div className="text-[11px] text-slate-200 leading-snug">
-                  <span className="text-emerald-400 font-semibold">
-                    Lluvia actual: {formatPrecipitation(metrics.lluviaActualMm)} ({metrics.estadoT0})
-                  </span>
-                  <span className="text-cyan-400 font-bold mx-1.5">→</span>
-                  <span className={alert.color_alerta === 'red' ? 'text-rose-300 font-bold' : 'text-amber-300 font-bold'}>
-                    Pronóstico en 3h: {formatPrecipitation(metrics.vol3h)} ({metrics.probDesbordePct}% - {metrics.etiquetaImpacto})
-                  </span>
+              {/* Bloque Principal (Tipografía Grande): Impacto Proyectado a 3h y 6h + Etiqueta Secundaria T0 */}
+              <div className="rounded-xl bg-[#040f1a]/95 border border-cyan-500/30 p-3 mb-3 font-mono">
+                <div className="flex items-baseline justify-between gap-2 mb-1">
+                  <div>
+                    <span className="text-[10px] text-cyan-300 uppercase block">
+                      Impacto Proyectado 3h vs Umbral 3h-P99
+                    </span>
+                    <div className={`text-base font-extrabold tabular-nums leading-tight ${alert.color_alerta === 'red' ? 'text-rose-300' : 'text-amber-300'}`}>
+                      {formatPrecipitation(metrics.vol3h)}{' '}
+                      <span className="text-xs font-normal text-slate-400">
+                        / {formatPrecipitation(metrics.p99)} ({metrics.etiquetaImpacto})
+                      </span>
+                    </div>
+                  </div>
+                  <div className="text-right shrink-0">
+                    <span className="text-[9px] text-slate-400 uppercase block">Tendencia 6h</span>
+                    <span className="text-[10px] font-bold text-cyan-300">
+                      {metrics.tendencia6h}
+                    </span>
+                  </div>
                 </div>
+
                 <div className="grid grid-cols-3 gap-1.5 text-[10px] text-slate-400 mt-2 pt-1.5 border-t border-slate-800/90 text-center">
                   <div className="rounded bg-[#071828] py-1 px-1.5 border border-slate-800">
                     <span className="block text-[9px] text-slate-400">Horizonte T+1h</span>
@@ -141,6 +152,16 @@ export default function AlertsSidebar({
                     <span className="block text-[9px] text-slate-400">Horizonte T+6h</span>
                     <strong className="text-cyan-300">{formatPrecipitation(metrics.vol6h)}</strong>
                   </div>
+                </div>
+
+                {/* Etiqueta secundaria de referencia: Lluvia actual (T0) */}
+                <div className="text-[10px] text-slate-400 mt-2 pt-1.5 border-t border-slate-800/80 flex items-center justify-between">
+                  <span>
+                    Lluvia actual: <strong className="text-emerald-400">{formatPrecipitation(metrics.lluviaActualMm)} - {metrics.estadoT0}</strong>
+                  </span>
+                  <span className="text-slate-300">
+                    3h-P90: <strong className="text-amber-300">{formatPrecipitation(metrics.p90)}</strong>
+                  </span>
                 </div>
               </div>
 

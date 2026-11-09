@@ -7,7 +7,11 @@ import {
   Radio, 
   X
 } from 'lucide-react';
-import { formatPrecipitation } from '../lib/hydrologyRules';
+import { 
+  formatPrecipitation, 
+  extractAlertMetrics, 
+  computePredictiveVectorFromForecast 
+} from '../lib/hydrologyRules';
 
 // Coordenadas extremas de Santander para proyección geoespacial
 const BOUNDS = {
@@ -41,10 +45,10 @@ export default function GeospatialMap({
   const [zoomPreset, setZoomPreset] = useState('all'); // 'all', 'metropolitana', 'magdalena', 'guanenta'
   const [hoveredStation, setHoveredStation] = useState(null);
 
-  // Mapa de alertas activas por código de estación
+  // Mapa de alertas activas por código de estación normalizado
   const alertsByStation = useMemo(() => {
     const map = new Map();
-    alerts.forEach(a => map.set(a.codigoestacion, a));
+    alerts.forEach(a => map.set(String(a.codigoestacion), a));
     return map;
   }, [alerts]);
 
@@ -64,6 +68,43 @@ export default function GeospatialMap({
 
   // Estación activa para el Tooltip flotante (seleccionada o hovered)
   const activeTooltipStation = hoveredStation || selectedStation;
+
+  // Métricas predictivas Nivel 1 para el globo flotante del mapa
+  const activeTooltipMetrics = useMemo(() => {
+    if (!activeTooltipStation) return null;
+    const existingAlert = alertsByStation.get(String(activeTooltipStation.codigoestacion));
+    if (existingAlert) {
+      return extractAlertMetrics(existingAlert, activeTooltipStation);
+    }
+    const baseP90 = Number(activeTooltipStation.umbral_3h_p90 ?? activeTooltipStation.umbral_alerta_naranja ?? 12.0);
+    const vec = computePredictiveVectorFromForecast(
+      activeTooltipStation,
+      {
+        lluviaActualMm: 0.0,
+        lluviaAntecedente6hMm: Number((activeTooltipStation.precipitacion_media ?? 1.2).toFixed(1)),
+        pronostico1hMm: Number((baseP90 * 0.16).toFixed(1)),
+        pronostico3hMm: Number((baseP90 * 0.42).toFixed(1)),
+        pronostico6hMm: Number((baseP90 * 0.65).toFixed(1)),
+        probabilidadPct: 22,
+        saturacionSueloPct: 46.0,
+      },
+      { stressTest: false }
+    );
+    return {
+      lluviaActualMm: vec.lluviaActualMm,
+      estadoT0: 'Sin lluvia en el momento',
+      vol1h: vec.pronostico1hMm,
+      vol3h: vec.pronostico3hMm,
+      vol6h: vec.pronostico6hMm,
+      probDesbordePct: vec.probabilidadDesbordePct,
+      saturacionSueloPct: vec.saturacionSueloPct,
+      ventanaEvacMin: vec.ventanaEvacuacionMin,
+      p90: vec.p90,
+      p99: vec.p99,
+      tendencia6h: vec.tendencia6h,
+      etiquetaImpacto: vec.status.type,
+    };
+  }, [activeTooltipStation, alertsByStation]);
 
   return (
     <div className="relative w-full h-[520px] lg:h-[620px] glass-panel rounded-3xl overflow-hidden border border-cyan-500/25 flex flex-col shadow-2xl">
@@ -315,8 +356,8 @@ export default function GeospatialMap({
             <div className="absolute inset-0">
               {stations.map((st) => {
                 const { x, y } = projectCoordinates(st.latitud, st.longitud);
-                const alert = alertsByStation.get(st.codigoestacion);
-                const isSelected = selectedStation?.codigoestacion === st.codigoestacion;
+                const alert = alertsByStation.get(String(st.codigoestacion));
+                const isSelected = String(selectedStation?.codigoestacion) === String(st.codigoestacion);
 
                 let markerColor = 'bg-cyan-400 text-cyan-900 border-cyan-200';
                 const isCritical = alert?.color_alerta === 'red' && !alert.revisado;
@@ -363,7 +404,7 @@ export default function GeospatialMap({
 
                     {/* Etiqueta flotante con nombre de municipio */}
                     <div className={`absolute top-6 left-1/2 -translate-x-1/2 px-1.5 py-0.5 rounded bg-[#030e1a]/95 border border-slate-700/80 text-[10px] font-mono whitespace-nowrap pointer-events-none transition-opacity ${
-                      isSelected || hoveredStation?.codigoestacion === st.codigoestacion ? 'opacity-100 z-30' : 'opacity-70 group-hover:opacity-100'
+                      isSelected || String(hoveredStation?.codigoestacion) === String(st.codigoestacion) ? 'opacity-100 z-30' : 'opacity-70 group-hover:opacity-100'
                     }`}>
                       <span className={isCritical ? 'text-rose-400 font-bold' : isSurveillance ? 'text-amber-400 font-bold' : 'text-slate-300'}>
                         {st.municipio}
@@ -380,18 +421,18 @@ export default function GeospatialMap({
 
       </div>
 
-      {/* TOOLTIP / TARJETA FLOTANTE DE LA ESTACIÓN O CUENCA SELECCIONADA */}
-      {activeTooltipStation && (
-        <div className="absolute bottom-4 left-4 right-4 sm:left-auto sm:right-4 sm:w-96 z-30 glass-panel rounded-2xl p-4 border border-cyan-400/40 shadow-2xl backdrop-blur-2xl animate-in fade-in slide-in-from-bottom-2 duration-200">
+      {/* TOOLTIP / TARJETA FLOTANTE DE LA ESTACIÓN SELECCIONADA (NIVEL 1: PREDICCIÓN PRIMERO) */}
+      {activeTooltipStation && activeTooltipMetrics && (
+        <div className="absolute bottom-4 left-4 right-4 sm:left-auto sm:right-4 sm:w-[410px] z-30 glass-panel rounded-2xl p-4 border border-cyan-400/40 shadow-2xl backdrop-blur-2xl animate-in fade-in slide-in-from-bottom-2 duration-200">
           
           <div className="flex items-start justify-between gap-2 mb-2">
             <div>
-              <div className="flex items-center gap-1.5 mb-1">
-                <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-cyan-950 border border-cyan-500/40 text-cyan-300">
-                  IDEAM COD: {activeTooltipStation.codigoestacion}
+              <div className="flex items-center gap-1.5 flex-wrap mb-1">
+                <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-cyan-950 border border-cyan-500/40 text-cyan-300 font-bold">
+                  NIVEL 1 · IMPACTO PROYECTADO
                 </span>
                 <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-slate-900 border border-slate-700 text-slate-300">
-                  {activeTooltipStation.municipio}
+                  {activeTooltipStation.municipio} · ID:{activeTooltipStation.codigoestacion}
                 </span>
               </div>
               <h4 className="text-sm font-bold text-white leading-tight">
@@ -407,47 +448,73 @@ export default function GeospatialMap({
             </button>
           </div>
 
-          <div className="grid grid-cols-2 gap-2 text-xs font-mono mb-3">
-            <div className="p-2 rounded-xl bg-[#061421]/90 border border-slate-700/60">
-              <span className="text-[10px] text-slate-400 block">Cuenca Hidrográfica</span>
-              <span className="text-cyan-300 font-semibold truncate block">{activeTooltipStation.zonahidrografica}</span>
+          {/* Bloque Principal (Tipografía Grande): Impacto Proyectado a 3h y 6h vs Umbral Crítico 3h */}
+          <div className="rounded-xl bg-[#04101c]/95 border border-cyan-400/40 p-3 mb-2.5 font-mono">
+            <div className="flex items-baseline justify-between gap-2 mb-1.5">
+              <div>
+                <span className="text-[10px] text-cyan-300 uppercase block">
+                  Proyección Efectiva 3h vs Umbral Crítico 3h-P99
+                </span>
+                <div className="text-lg font-extrabold text-white tabular-nums leading-tight">
+                  {formatPrecipitation(activeTooltipMetrics.vol3h)}{' '}
+                  <span className="text-xs font-normal text-slate-400">
+                    / {formatPrecipitation(activeTooltipMetrics.p99)}
+                  </span>
+                </div>
+              </div>
+              <div className="text-right">
+                <span className="text-[10px] text-rose-300 uppercase block">Prob. Desborde</span>
+                <span className="text-lg font-extrabold text-rose-400 tabular-nums leading-tight">
+                  {activeTooltipMetrics.probDesbordePct}%
+                </span>
+              </div>
             </div>
-            <div className="p-2 rounded-xl bg-[#061421]/90 border border-slate-700/60">
-              <span className="text-[10px] text-slate-400 block">Coordenadas Geodésicas</span>
-              <a
-                href={`https://www.windy.com/${activeTooltipStation.latitud}/${activeTooltipStation.longitud}?rain,${activeTooltipStation.latitud},${activeTooltipStation.longitud},11`}
-                target="_blank"
-                rel="noreferrer"
-                className="text-cyan-300 hover:underline block"
-                title="Verificar radar satelital en vivo en Windy.com"
-              >
-                {activeTooltipStation.latitud.toFixed(4)}°N, {activeTooltipStation.longitud.toFixed(4)}°W
-              </a>
+
+            <div className="grid grid-cols-3 gap-1.5 text-center pt-2 border-t border-slate-800/90">
+              <div className="rounded-lg bg-[#071828] py-1 px-1.5 border border-slate-800">
+                <span className="text-[9px] text-slate-400 block">Acumulado T+6h</span>
+                <strong className="text-xs text-cyan-300 tabular-nums">
+                  {formatPrecipitation(activeTooltipMetrics.vol6h)}
+                </strong>
+              </div>
+              <div className="rounded-lg bg-[#071828] py-1 px-1.5 border border-amber-500/30">
+                <span className="text-[9px] text-amber-300 block">Umbral 3h-P90</span>
+                <strong className="text-xs text-amber-300 tabular-nums">
+                  {formatPrecipitation(activeTooltipMetrics.p90)}
+                </strong>
+              </div>
+              <div className="rounded-lg bg-[#071828] py-1 px-1.5 border border-emerald-500/30">
+                <span className="text-[9px] text-emerald-300 block">Ventana Evac.</span>
+                <strong className="text-xs text-emerald-300 tabular-nums">
+                  {activeTooltipMetrics.ventanaEvacMin} min
+                </strong>
+              </div>
             </div>
-            <div className="p-2 rounded-xl bg-[#061421]/90 border border-amber-500/30">
-              <span className="text-[10px] text-amber-400 block">Umbral 3h P90 (Vigilancia)</span>
-              <span className="text-amber-300 font-bold text-sm">
-                {formatPrecipitation(activeTooltipStation.umbral_3h_p90 ?? activeTooltipStation.umbral_alerta_naranja)}
+
+            {/* Etiqueta secundaria de referencia: Lluvia actual (T0) y Tendencia 6h */}
+            <div className="flex items-center justify-between gap-2 text-[10px] text-slate-400 mt-2 pt-1.5 border-t border-slate-800/80">
+              <span>
+                Lluvia actual: <strong className="text-emerald-400">{formatPrecipitation(activeTooltipMetrics.lluviaActualMm)} - {activeTooltipMetrics.estadoT0}</strong>
               </span>
-            </div>
-            <div className="p-2 rounded-xl bg-[#061421]/90 border border-rose-500/30">
-              <span className="text-[10px] text-rose-400 block">Umbral 3h P99 (Crítico)</span>
-              <span className="text-rose-300 font-bold text-sm">
-                {formatPrecipitation(activeTooltipStation.umbral_3h_p99 ?? activeTooltipStation.umbral_alerta_roja)}
+              <span className="text-cyan-300 font-semibold truncate">
+                {activeTooltipMetrics.tendencia6h}
               </span>
             </div>
           </div>
 
-          {/* Estadísticas de la Capa Oro y Verificación Satelital */}
-          <div className="flex items-center justify-between text-[11px] font-mono text-slate-400 border-t border-slate-800 pt-2 mb-3">
-            <span>Lecturas Spark: <strong className="text-slate-200">{activeTooltipStation.total_lecturas.toLocaleString()}</strong></span>
+          {/* Metadatos Geodésicos e Históricos Secundarios (Nivel 2) */}
+          <div className="flex items-center justify-between text-[10px] font-mono text-slate-400 border-t border-slate-800/80 pt-2 mb-2.5">
+            <span className="truncate max-w-[180px]" title={activeTooltipStation.zonahidrografica}>
+              Cuenca: <strong className="text-cyan-300">{activeTooltipStation.zonahidrografica}</strong> ({Math.round(activeTooltipStation.altitud_msnm ?? 950)} msnm)
+            </span>
             <a
               href={`https://www.windy.com/${activeTooltipStation.latitud}/${activeTooltipStation.longitud}?rain,${activeTooltipStation.latitud},${activeTooltipStation.longitud},11`}
               target="_blank"
               rel="noreferrer"
-              className="text-cyan-300 hover:text-cyan-200 underline"
+              className="text-cyan-300 hover:text-cyan-200 underline shrink-0"
+              title="Verificar radar satelital en vivo en Windy.com"
             >
-              Ver Radar Windy
+              {activeTooltipStation.latitud.toFixed(3)}°N, {activeTooltipStation.longitud.toFixed(3)}°W · Windy
             </a>
           </div>
 

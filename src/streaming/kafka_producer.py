@@ -95,15 +95,15 @@ def fetch_forecast_by_coords(lat, lon):
         }
 
 
-def compute_spark_predictive_vector(st, forecast, stress_test=False, idx=1):
+def compute_spark_predictive_vector(st, forecast, stress_test=False):
     """
-    Aplica el modelo hidrológico y estacional entrenado en Apache Spark (Capa Oro) sobre el pronóstico satelital:
-    - Régimen bimodal estacional de Santander (factor_estacional_bimodal, media_epoca_lluvias_mm, media_epoca_seca_mm)
-    - Coeficiente de escorrentía de la cuenca (coef_escorrentia)
-    - Índice de Precipitación Antecedente crítico 24h (api_critico_24h_mm)
-    - Probabilidad condicional Markoviana P(Exceso_{t+3h} | Saturacion_t)
-    - Umbrales acumulados en ventana de 10.800 s / 3 horas (umbral_3h_p90, umbral_3h_p99)
+    Aplica la ecuación hidrológica dimensionalmente consistente entrenada en Apache Spark (Capa Oro):
+    - Amplifica proporcionalmente el pronóstico satelital de 3 horas según el coeficiente de escorrentía
+      (coef_escorrentia) y el grado de saturación previa del suelo (alpha_sat).
+    - Calcula la tendencia de escalamiento o desaceleración a partir del pronóstico a 6 horas (tendencia_6h).
+    - En modo stress_test utiliza una formulación determinista por estación idéntica a hydrologyRules.js.
     """
+    cod_str = str(st["codigoestacion"])
     p90_3h = float(st.get("umbral_3h_p90", st["umbral_alerta_naranja"]))
     p99_3h = float(st.get("umbral_3h_p99", st["umbral_alerta_roja"]))
     api_crit_24h = float(st.get("api_critico_24h_mm", max(1.0, p90_3h * 0.6)))
@@ -122,6 +122,7 @@ def compute_spark_predictive_vector(st, forecast, stress_test=False, idx=1):
         ponderador_estacional = 1.0
 
     lluvia_actual = forecast["lluvia_actual_mm"]
+    lluvia_ant_6h = forecast["lluvia_antecedente_6h_mm"]
     saturacion_suelo_pct = forecast["saturacion_suelo_pct"]
     pronostico_1h = forecast["pronostico_1h_mm"]
     pronostico_3h = forecast["pronostico_3h_mm"]
@@ -131,33 +132,47 @@ def compute_spark_predictive_vector(st, forecast, stress_test=False, idx=1):
 
     if stress_test:
         modo_operacion = "STRESS_TEST_DETERMINISTA"
-        if idx % 3 == 0:
-            pronostico_3h = round(p99_3h * 1.08, 2)
+        es_critica_stress = (int(cod_str) % 3) != 1
+        lluvia_actual = 0.0
+        if es_critica_stress:
+            pronostico_3h = round(p99_3h * 0.92, 2)
             pronostico_1h = round(pronostico_3h * 0.36, 2)
-            pronostico_6h = round(p99_3h * 1.38, 2)
-            prob_sat = max(prob_sat, 92)
-            saturacion_suelo_pct = max(saturacion_suelo_pct, 74.0)
-        elif idx % 3 == 1:
-            pronostico_3h = round(p90_3h + (p99_3h - p90_3h) * 0.35, 2)
+            pronostico_6h = round(p99_3h * 1.25, 2)
+            prob_sat = 92
+            saturacion_suelo_pct = 74.0
+            lluvia_ant_6h = round(max(1.2, p99_3h * 0.18), 2)
+        else:
+            pronostico_3h = round((p90_3h + (p99_3h - p90_3h) * 0.30) * 0.85, 2)
             pronostico_1h = round(pronostico_3h * 0.35, 2)
-            pronostico_6h = round(p90_3h + (p99_3h - p90_3h) * 0.65, 2)
-            prob_sat = max(prob_sat, 78)
-            saturacion_suelo_pct = max(saturacion_suelo_pct, 61.0)
+            pronostico_6h = round((p90_3h + (p99_3h - p90_3h) * 0.65) * 0.90, 2)
+            prob_sat = 78
+            saturacion_suelo_pct = 62.0
+            lluvia_ant_6h = round(max(0.8, p90_3h * 0.15), 2)
 
-    # 1. Saturación antecedente efectiva modulada por la estacionalidad mensual/trimestral de Spark
+    # 1. Grado de saturación previa del suelo (alpha_sat) y lámina antecedente equivalente a 3h
     factor_humedad = max(0.0, (saturacion_suelo_pct - 25.0) / 100.0)
-    saturacion_antecedente_mm = round(
-        (forecast["lluvia_antecedente_6h_mm"] * coef_esc) +
-        (api_crit_24h * factor_humedad * coef_esc * 0.45 * ponderador_estacional),
-        2
+    ratio_ant = min(1.0, lluvia_ant_6h / max(api_crit_24h, 1.0))
+    alpha_sat = min(
+        0.65,
+        round((coef_esc * factor_humedad * ponderador_estacional * 0.45) + (coef_esc * ratio_ant * 0.15), 4),
     )
+    saturacion_antecedente_mm = round(lluvia_ant_6h * 0.35 * coef_esc, 2)
 
-    # 2. Volumen efectivo proyectado a T+1h, T+3h y T+6h
-    volumen_proyectado_1h = round(saturacion_antecedente_mm * 0.5 + pronostico_1h, 2)
-    volumen_proyectado_3h = round(saturacion_antecedente_mm + pronostico_3h, 2)
-    volumen_proyectado_6h = round(saturacion_antecedente_mm + pronostico_6h, 2)
+    # 2. Lluvia efectiva proyectada a T+1h, T+3h y T+6h (amplificación proporcional por escorrentía y saturación)
+    volumen_proyectado_1h = round(pronostico_1h * (1.0 + alpha_sat) + saturacion_antecedente_mm * 0.33, 2)
+    volumen_proyectado_3h = round(pronostico_3h * (1.0 + alpha_sat) + saturacion_antecedente_mm, 2)
+    volumen_proyectado_6h = round(pronostico_6h * (1.0 + alpha_sat) + saturacion_antecedente_mm, 2)
 
-    # 3. Probabilidad posterior de desbordamiento combinando Markov Spark + carga hidráulica + satélite
+    # 3. Tendencia a T+6h (escalamiento o desaceleración posterior a la ventana de 3h)
+    delta_3_a_6 = max(0.0, volumen_proyectado_6h - volumen_proyectado_3h)
+    if delta_3_a_6 > volumen_proyectado_3h * 0.45 and volumen_proyectado_6h > volumen_proyectado_3h + 0.8:
+        tendencia_6h = "ESCALAMIENTO SOSTENIDO (T+6h)"
+    elif delta_3_a_6 > volumen_proyectado_3h * 0.15:
+        tendencia_6h = "PERSISTENCIA MODERADA (T+6h)"
+    else:
+        tendencia_6h = "DESACELERACIÓN POST-PICO (T+6h)"
+
+    # 4. Probabilidad posterior de desbordamiento combinando Markov Spark + carga hidráulica 3h + satélite
     ratio_carga_p99 = min(1.35, volumen_proyectado_3h / max(p99_3h, 0.2))
     prob_desbordamiento_pct = int(
         round(
@@ -180,6 +195,7 @@ def compute_spark_predictive_vector(st, forecast, stress_test=False, idx=1):
         "volumen_proyectado_1h_mm": volumen_proyectado_1h,
         "volumen_proyectado_3h_mm": volumen_proyectado_3h,
         "volumen_proyectado_6h_mm": volumen_proyectado_6h,
+        "tendencia_6h": tendencia_6h,
         "probabilidad_lluvia_pct": prob_sat,
         "probabilidad_desbordamiento_pct": prob_desbordamiento_pct,
         "saturacion_suelo_pct": saturacion_suelo_pct,
@@ -223,7 +239,7 @@ def run_producer(num_events=26, delay_seconds=1.0, stress_test=False):
         lon = float(st["longitud"])
 
         forecast = fetch_forecast_by_coords(lat, lon)
-        pred = compute_spark_predictive_vector(st, forecast, stress_test=stress_test, idx=i)
+        pred = compute_spark_predictive_vector(st, forecast, stress_test=stress_test)
 
         evento = {
             "evento_id": f"PRED-{int(time.time() * 1000)}-{i:02d}",
@@ -250,6 +266,7 @@ def run_producer(num_events=26, delay_seconds=1.0, stress_test=False):
             "volumen_proyectado_1h_mm": pred["volumen_proyectado_1h_mm"],
             "valorobservado": pred["volumen_proyectado_3h_mm"],
             "volumen_proyectado_6h_mm": pred["volumen_proyectado_6h_mm"],
+            "tendencia_6h": pred["tendencia_6h"],
             "horizonte_prediccion": "T+1h / T+3h / T+6h",
             "modo_operacion": pred["modo_operacion"],
             "unidadmedida": "mm",

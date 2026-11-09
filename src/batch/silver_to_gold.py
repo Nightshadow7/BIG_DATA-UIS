@@ -82,19 +82,70 @@ def get_s3_client():
     )
 
 
-def build_alert_record(st, nivel, color, mult_3h, prob_base):
-    """Construye el registro predictivo completo para una estación sin forzarla a 2 zonas fijas."""
-    p90 = float(st["umbral_3h_p90"])
-    p99 = float(st["umbral_3h_p99"])
-    lluvia_t0 = 0.0
-    pron_3h = round(p99 * mult_3h if color == "red" else (p90 + (p99 - p90) * 0.42), 2)
-    pron_1h = round(pron_3h * 0.36, 2)
-    pron_6h = round(pron_3h * 1.28, 2)
-    prob_desborde = int(round(min(98.0, float(st["prob_transicion_exceso"]) * 100.0 + prob_base)))
-    sat_suelo = 74.5 if color == "red" else 62.0
-    sat_ant_mm = round(float(st["api_critico_24h_mm"]) * float(st["coef_escorrentia"]) * 0.35, 2)
-    evac_min = int(st["ventana_evacuacion_min"])
+def build_alert_record(st, force_critical=True):
+    """
+    Construye el registro predictivo completo para una estación aplicando exactamente la misma
+    ecuación hidrológica dimensionalmente consistente (3h vs 3h + tendencia a 6h) de Kafka y React.
+    """
+    p90_3h = float(st["umbral_3h_p90"])
+    p99_3h = float(st["umbral_3h_p99"])
+    api_crit_24h = float(st.get("api_critico_24h_mm", max(1.0, p90_3h * 0.6)))
+    coef_esc = float(st.get("coef_escorrentia", 0.65))
+    prob_markov = float(st.get("prob_transicion_exceso", 0.35))
+    evac_min = int(st.get("ventana_evacuacion_min", 150))
+    factor_bimodal = float(st.get("factor_estacional_bimodal", 1.25))
     cod_str = str(st["codigoestacion"])
+
+    ponderador_estacional = min(1.45, max(1.05, factor_bimodal * 0.85))
+    lluvia_t0 = 0.0
+
+    if force_critical:
+        raw_3h = round(p99_3h * 0.92, 2)
+        raw_1h = round(raw_3h * 0.36, 2)
+        raw_6h = round(p99_3h * 1.25, 2)
+        prob_sat = 92
+        sat_suelo = 74.0
+        lluvia_ant_6h = round(max(1.2, p99_3h * 0.18), 2)
+    else:
+        raw_3h = round((p90_3h + (p99_3h - p90_3h) * 0.30) * 0.85, 2)
+        raw_1h = round(raw_3h * 0.35, 2)
+        raw_6h = round((p90_3h + (p99_3h - p90_3h) * 0.65) * 0.90, 2)
+        prob_sat = 78
+        sat_suelo = 62.0
+        lluvia_ant_6h = round(max(0.8, p90_3h * 0.15), 2)
+
+    factor_humedad = max(0.0, (sat_suelo - 25.0) / 100.0)
+    ratio_ant = min(1.0, lluvia_ant_6h / max(api_crit_24h, 1.0))
+    alpha_sat = min(
+        0.65,
+        round((coef_esc * factor_humedad * ponderador_estacional * 0.45) + (coef_esc * ratio_ant * 0.15), 4),
+    )
+    sat_ant_mm = round(lluvia_ant_6h * 0.35 * coef_esc, 2)
+
+    pron_1h = round(raw_1h * (1.0 + alpha_sat) + sat_ant_mm * 0.33, 2)
+    pron_3h = round(raw_3h * (1.0 + alpha_sat) + sat_ant_mm, 2)
+    pron_6h = round(raw_6h * (1.0 + alpha_sat) + sat_ant_mm, 2)
+
+    delta_3_a_6 = max(0.0, pron_6h - pron_3h)
+    if delta_3_a_6 > pron_3h * 0.45 and pron_6h > pron_3h + 0.8:
+        tendencia_6h = "ESCALAMIENTO SOSTENIDO (T+6h)"
+    elif delta_3_a_6 > pron_3h * 0.15:
+        tendencia_6h = "PERSISTENCIA MODERADA (T+6h)"
+    else:
+        tendencia_6h = "DESACELERACIÓN POST-PICO (T+6h)"
+
+    ratio_carga_p99 = min(1.35, pron_3h / max(p99_3h, 0.2))
+    prob_desborde = int(
+        round(
+            min(
+                99.0,
+                max(5.0, (prob_markov * 100.0 * 0.35) + (ratio_carga_p99 * 100.0 * 0.45) + (prob_sat * 0.20)),
+            )
+        )
+    )
+
+    color = "red" if pron_3h >= p99_3h else "orange"
+    nivel = "ALERTA CRÍTICA" if color == "red" else "VIGILANCIA"
 
     full_payload = {
         "id": int(cod_str),
@@ -112,18 +163,18 @@ def build_alert_record(st, nivel, color, mult_3h, prob_base):
             f"Lluvia actual (T0): {lluvia_t0} mm (Sin lluvia) -> Pronóstico T+1h: {pron_1h} mm | "
             f"T+3h: {pron_3h} mm | T+6h: {pron_6h} mm (Probabilidad {prob_desborde}% - "
             f"{'Desbordamiento Inminente' if color == 'red' else 'Vigilancia Activa'}). "
-            f"Umbral 3h P90={p90} mm, P99={p99} mm | Saturación suelo: {sat_suelo}% | "
-            f"Factor estacional bimodal: {st['factor_estacional_bimodal']}x | Ventana evacuación: {evac_min} min."
+            f"Tendencia: {tendencia_6h}. Umbral 3h P90={p90_3h} mm, P99={p99_3h} mm | "
+            f"Saturación suelo: {sat_suelo}% | Coef. escorrentía: {coef_esc} | Ventana evacuación: {evac_min} min."
         ),
         "estado_prioridad": (
             f"{'Evacuación Preventiva' if color == 'red' else 'Vigilancia Predictiva'} · "
-            f"Ventana {evac_min} min (T+1h: {pron_1h} mm -> T+3h: {pron_3h} mm)"
+            f"Ventana {evac_min} min · {tendencia_6h}"
         ),
         "lluvia_actual_mm": lluvia_t0,
         "pronostico_1h_mm": pron_1h,
         "pronostico_3h_mm": pron_3h,
         "pronostico_6h_mm": pron_6h,
-        "probabilidad_lluvia_pct": min(99, prob_desborde + 4),
+        "probabilidad_lluvia_pct": prob_sat,
         "probabilidad_desbordamiento_pct": prob_desborde,
         "saturacion_suelo_pct": sat_suelo,
         "saturacion_antecedente_mm": sat_ant_mm,
@@ -181,15 +232,7 @@ def sync_to_supabase(df_gold_pd):
     alertas_multi = []
     for idx, st in enumerate(selected_stations):
         is_crit = idx < 2
-        alertas_multi.append(
-            build_alert_record(
-                st,
-                nivel="ALERTA CRÍTICA" if is_crit else "VIGILANCIA",
-                color="red" if is_crit else "orange",
-                mult_3h=1.09 if idx == 0 else 1.13,
-                prob_base=62.0 if is_crit else 48.0,
-            )
-        )
+        alertas_multi.append(build_alert_record(st, force_critical=is_crit))
 
     try:
         supabase.table("alertas_activas").upsert(alertas_multi).execute()
@@ -357,11 +400,18 @@ def run_silver_to_gold():
         )
         .withColumn("umbral_alerta_naranja", F.col("umbral_3h_p90"))
         .withColumn("umbral_alerta_roja", F.col("umbral_3h_p99"))
+        # Suavizado de Laplace (alpha=2, K=6) acotado en [0.05, 0.95] para evitar divisiones por cero o extremos irreales (0% o 100%)
         .withColumn(
             "prob_transicion_exceso",
             F.round(
-                (F.col("eventos_transicion_exceso") + F.lit(2.0)) /
-                (F.greatest(F.col("eventos_saturados"), F.lit(1.0)) + F.lit(6.0)),
+                F.least(
+                    F.lit(0.95),
+                    F.greatest(
+                        F.lit(0.05),
+                        (F.col("eventos_transicion_exceso") + F.lit(2.0)) /
+                        (F.greatest(F.col("eventos_saturados"), F.lit(1.0)) + F.lit(6.0))
+                    )
+                ),
                 4
             )
         )

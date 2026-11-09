@@ -97,29 +97,39 @@ function broadcastAlertChange(eventType, newRecord, oldRecord) {
 }
 
 function enrichStationModel(st) {
-  const p90 = Number(st.umbral_3h_p90 ?? st.umbral_alerta_naranja ?? 2.0);
-  const p99 = Number(st.umbral_3h_p99 ?? st.umbral_alerta_roja ?? 10.0);
-  const media = Number(st.precipitacion_media ?? 1.5);
-  const altitud_msnm = Number(st.altitud_msnm ?? Math.max(85, Math.round((Number(st.longitud) + 74.15) * 1650)));
+  const refDefault =
+    DEFAULT_STATIONS.find((d) => String(d.codigoestacion) === String(st.codigoestacion)) || {};
+  const merged = { ...refDefault, ...st };
+
+  const p90 = Number(merged.umbral_3h_p90 ?? merged.umbral_alerta_naranja ?? 2.0);
+  const p99 = Number(merged.umbral_3h_p99 ?? merged.umbral_alerta_roja ?? 10.0);
+  const media = Number(merged.precipitacion_media ?? 1.5);
+  const altitud_msnm = Number(
+    merged.altitud_msnm ?? Math.max(85, Math.round((Number(merged.longitud) + 74.15) * 1650))
+  );
   const coef_escorrentia = Number(
-    st.coef_escorrentia ??
-    Math.min(0.92, Math.max(0.48, 0.45 + altitud_msnm / 6500 + (p90 / Math.max(p99, 0.5)) * 0.18)).toFixed(2)
+    merged.coef_escorrentia ??
+      Math.min(0.92, Math.max(0.48, 0.45 + altitud_msnm / 6500 + (p90 / Math.max(p99, 0.5)) * 0.18)).toFixed(3)
   );
-  const api_critico_24h_mm = Number(st.api_critico_24h_mm ?? (p90 * 0.58).toFixed(1));
+  const api_critico_24h_mm = Number(merged.api_critico_24h_mm ?? Math.max(0.5, Number((p90 * 0.58).toFixed(2))));
+  const api_critico_72h_mm = Number(merged.api_critico_72h_mm ?? Math.max(1.2, Number((api_critico_24h_mm * 1.45).toFixed(2))));
   const prob_transicion_exceso = Number(
-    st.prob_transicion_exceso ??
-    Math.min(0.86, Math.max(0.28, (p90 / Math.max(p99, 0.5)) * 0.72)).toFixed(2)
+    merged.prob_transicion_exceso ??
+      Math.min(0.86, Math.max(0.08, (p90 / Math.max(p99, 0.5)) * 0.35)).toFixed(4)
   );
-  const ventana_evacuacion_min = Number(st.ventana_evacuacion_min ?? Math.max(75, Math.round(210 - altitud_msnm / 28)));
-  const desviacion_estandar = Number(st.desviacion_estandar ?? (p90 * 0.42).toFixed(2));
-  const media_epoca_lluvias_mm = Number(st.media_epoca_lluvias_mm ?? (media * 1.42).toFixed(2));
-  const media_epoca_seca_mm = Number(st.media_epoca_seca_mm ?? (media * 0.68).toFixed(2));
+  const ventana_evacuacion_min = Number(
+    merged.ventana_evacuacion_min ?? Math.max(75, Math.round(210 - altitud_msnm / 28))
+  );
+  const desviacion_estandar = Number(merged.desviacion_estandar ?? (p90 * 0.42).toFixed(2));
+  const media_epoca_lluvias_mm = Number(merged.media_epoca_lluvias_mm ?? (media * 1.42).toFixed(2));
+  const media_epoca_seca_mm = Number(merged.media_epoca_seca_mm ?? (media * 0.68).toFixed(2));
   const factor_estacional_bimodal = Number(
-    st.factor_estacional_bimodal ?? (media_epoca_lluvias_mm / Math.max(0.5, media_epoca_seca_mm)).toFixed(2)
+    merged.factor_estacional_bimodal ??
+      Math.min(2.4, Math.max(1.05, media_epoca_lluvias_mm / Math.max(0.5, media_epoca_seca_mm))).toFixed(2)
   );
 
   return {
-    ...st,
+    ...merged,
     altitud_msnm,
     desviacion_estandar,
     media_epoca_lluvias_mm,
@@ -128,6 +138,7 @@ function enrichStationModel(st) {
     umbral_3h_p90: p90,
     umbral_3h_p99: p99,
     api_critico_24h_mm,
+    api_critico_72h_mm,
     coef_escorrentia,
     prob_transicion_exceso,
     ventana_evacuacion_min,
@@ -432,16 +443,17 @@ export async function simulateKafkaPeak(stationCode, stressTest = false, baseSta
     tipo_alerta: vec.status.type,
     color_alerta: vec.status.color,
     cuenca_sector: `Cuenca ${found.zonahidrografica} · ${found.municipio}`,
-    descripcion: `${vec.contrastBanner}. Horizontes: T+1h=${vec.pronostico1hMm} mm | T+3h=${vec.pronostico3hMm} mm | T+6h=${vec.pronostico6hMm} mm. Umbral 3h P90=${found.umbral_3h_p90} mm, P99=${found.umbral_3h_p99} mm | Saturación suelo: ${vec.saturacionSueloPct}% | Factor estacional Spark: ${vec.factorEstacionalBimodal}x | Ventana evacuación: ${vec.ventanaEvacuacionMin} min.`,
+    descripcion: `${vec.contrastBanner}. Tendencia: ${vec.tendencia6h}. Umbral 3h P90=${found.umbral_3h_p90} mm, P99=${found.umbral_3h_p99} mm | Saturación suelo: ${vec.saturacionSueloPct}% | Coef. escorrentía: ${vec.coefEscorrentia} | Factor estacional Spark: ${vec.factorEstacionalBimodal}x | Ventana evacuación: ${vec.ventanaEvacuacionMin} min.`,
     estado_prioridad: isCritical
-      ? `Evacuación Preventiva · Ventana ${vec.ventanaEvacuacionMin} min (T+1h: ${vec.pronostico1hMm} mm -> T+3h: ${vec.pronostico3hMm} mm)`
+      ? `Evacuación Preventiva · Ventana ${vec.ventanaEvacuacionMin} min · ${vec.tendencia6h}`
       : isSurveillance
-        ? `Vigilancia Predictiva · Ventana ${vec.ventanaEvacuacionMin} min (T+1h: ${vec.pronostico1hMm} mm -> T+3h: ${vec.pronostico3hMm} mm)`
-        : `Cuenca dentro de capacidad normal (T+3h: ${vec.pronostico3hMm} mm < P90: ${found.umbral_3h_p90} mm)`,
+        ? `Vigilancia Predictiva · Ventana ${vec.ventanaEvacuacionMin} min · ${vec.tendencia6h}`
+        : `Cuenca dentro de capacidad normal (T+3h: ${vec.pronostico3hMm} mm < P90: ${found.umbral_3h_p90} mm) · ${vec.tendencia6h}`,
     lluvia_actual_mm: vec.lluviaActualMm,
     pronostico_1h_mm: vec.pronostico1hMm,
     pronostico_3h_mm: vec.pronostico3hMm,
     pronostico_6h_mm: vec.pronostico6hMm,
+    tendencia_6h: vec.tendencia6h,
     probabilidad_lluvia_pct: vec.probabilidadLluviaPct,
     probabilidad_desbordamiento_pct: vec.probabilidadDesbordamientoPct,
     saturacion_suelo_pct: vec.saturacionSueloPct,

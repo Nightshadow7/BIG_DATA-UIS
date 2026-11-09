@@ -44,7 +44,7 @@ test('formatPrecipitation formats with mm unit', () => {
   assert.equal(formatPrecipitation(0), '0.0 mm');
 });
 
-test('computePredictiveVectorFromForecast uses deterministic real Open-Meteo data without arbitrary multiplication by default', () => {
+test('computePredictiveVectorFromForecast evaluates 3h effective rainfall strictly against 3h thresholds and classifies 6h trend', () => {
   const station = {
     codigoestacion: '23190130',
     umbral_3h_p90: 10.4,
@@ -57,19 +57,20 @@ test('computePredictiveVectorFromForecast uses deterministic real Open-Meteo dat
   };
   const forecast = {
     lluviaActualMm: 0.0,
-    lluviaAntecedente6hMm: 0.0,
-    pronostico1hMm: 2.1,
-    pronostico3hMm: 6.9,
-    pronostico6hMm: 12.0,
-    probabilidadPct: 29,
-    saturacionSueloPct: 50.6,
+    lluviaAntecedente6hMm: 3.2,
+    pronostico1hMm: 2.8,
+    pronostico3hMm: 9.2,
+    pronostico6hMm: 16.5,
+    probabilidadPct: 54,
+    saturacionSueloPct: 68.0,
   };
 
   const vecReal = computePredictiveVectorFromForecast(station, forecast, { stressTest: false, month: 10 });
   assert.equal(vecReal.modoOperacion, 'REAL_OPEN_METEO_SPARK');
+  assert.ok(vecReal.pronostico3hMm >= station.umbral_3h_p90);
   assert.ok(vecReal.pronostico3hMm < station.umbral_3h_p99);
-  assert.ok(vecReal.pronostico6hMm >= station.umbral_3h_p90);
   assert.equal(vecReal.status.type, 'VIGILANCIA');
+  assert.equal(vecReal.tendencia6h, 'ESCALAMIENTO SOSTENIDO (T+6h)');
 
   const vecStress = computePredictiveVectorFromForecast(station, forecast, { stressTest: true, month: 10 });
   assert.equal(vecStress.modoOperacion, 'STRESS_TEST_DETERMINISTA');
@@ -77,15 +78,9 @@ test('computePredictiveVectorFromForecast uses deterministic real Open-Meteo dat
   assert.equal(vecStress.status.type, 'ALERTA CRÍTICA');
 });
 
-test('extractAlertMetrics builds T0 -> T+3h contrast string', () => {
+test('extractAlertMetrics builds T0 -> T+3h contrast string and parses description fallback', () => {
   const alert = {
-    lluvia_actual_mm: 0.0,
-    pronostico_1h_mm: 31.2,
-    pronostico_3h_mm: 94.2,
-    pronostico_6h_mm: 119.2,
-    probabilidad_desbordamiento_pct: 77,
-    saturacion_suelo_pct: 74.5,
-    ventana_evacuacion_min: 206,
+    descripcion: 'Lluvia actual (T0): 0.0 mm | T+1h: 31.2 mm | T+3h: 94.2 mm | T+6h: 149.2 mm | Tendencia: ESCALAMIENTO SOSTENIDO (T+6h) | Probabilidad 77% | Suelo: 74.5% | Ventana evacuación: 206 min',
     color_alerta: 'red',
     revisado: false,
   };
@@ -93,7 +88,9 @@ test('extractAlertMetrics builds T0 -> T+3h contrast string', () => {
   const metrics = extractAlertMetrics(alert, station);
   assert.equal(metrics.vol1h, 31.2);
   assert.equal(metrics.vol3h, 94.2);
+  assert.equal(metrics.vol6h, 149.2);
   assert.equal(metrics.probDesbordePct, 77);
+  assert.equal(metrics.tendencia6h, 'ESCALAMIENTO SOSTENIDO (T+6h)');
   assert.ok(metrics.contrastText.includes('Lluvia actual: 0.0 mm'));
   assert.ok(metrics.contrastText.includes('Pronóstico en 3 horas: 94.2 mm'));
 });
