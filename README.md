@@ -10,10 +10,10 @@ Plataforma distribuida de Big Data (Arquitectura Híbrida Lambda + Medallón) pa
 ---
 
 ## Autores — Universidad Industrial de Santander (UIS)
-- **Anthoni Lexandre Hernandez** — `2191198`
-- **Andres Santiago Marin** - `2243556`
-- **Angie Nicol Boada** - `2243672`
-- **Laura Valentina Ortiz** - `2243553`
+- **Anthoni Lexandre Hernández Díaz** — `2191198`
+- **Andrés Santiago Marín Forero** - `2243556`
+- **Angie Nicole Boada Mogollón** - `2243672`
+- **Laura Valentina Ortiz Villamizar** - `2243553`
 
 ---
 
