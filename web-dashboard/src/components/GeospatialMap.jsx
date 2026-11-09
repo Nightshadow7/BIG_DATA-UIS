@@ -1,18 +1,10 @@
-import React, { useState, useMemo } from 'react';
+import { useState, useMemo } from 'react';
 import { 
   Layers, 
-  Eye, 
   MapPin, 
-  Crosshair, 
-  Maximize2, 
   Compass, 
   Sliders, 
-  AlertOctagon, 
-  AlertTriangle, 
   Radio, 
-  Info,
-  Droplets,
-  Waves,
   X
 } from 'lucide-react';
 
@@ -71,9 +63,6 @@ export default function GeospatialMap({
 
   // Estación activa para el Tooltip flotante (seleccionada o hovered)
   const activeTooltipStation = hoveredStation || selectedStation;
-  const activeTooltipAlert = activeTooltipStation 
-    ? alertsByStation.get(activeTooltipStation.codigoestacion) 
-    : null;
 
   return (
     <div className="relative w-full h-[520px] lg:h-[620px] glass-panel rounded-3xl overflow-hidden border border-cyan-500/25 flex flex-col shadow-2xl">
@@ -329,10 +318,9 @@ export default function GeospatialMap({
                 const isSelected = selectedStation?.codigoestacion === st.codigoestacion;
 
                 let markerColor = 'bg-cyan-400 text-cyan-900 border-cyan-200';
-                let hasAlert = Boolean(alert);
-                let isCritical = alert?.color_alerta === 'red' && !alert.revisado;
-                let isSurveillance = alert?.color_alerta === 'orange' && !alert.revisado;
-                let isReviewed = alert?.revisado;
+                const isCritical = alert?.color_alerta === 'red' && !alert.revisado;
+                const isSurveillance = alert?.color_alerta === 'orange' && !alert.revisado;
+                const isReviewed = alert?.revisado;
 
                 if (isCritical) {
                   markerColor = 'bg-[#fc626e] text-white border-rose-200 shadow-[0_0_20px_#fc626e]';

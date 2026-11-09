@@ -1,4 +1,3 @@
-import React from 'react';
 import { 
   AlertOctagon, 
   AlertTriangle, 
@@ -58,7 +57,6 @@ export default function AlertsSidebar({
           const isSelected = selectedAlertId === alert.id;
 
           // Coloración y estilos según estado
-          let themeColor = 'red';
           let borderStyle = 'border-rose-500/40 hover:border-rose-400/70';
           let bgStyle = 'bg-gradient-to-b from-[#190d18]/90 to-[#0c1825]/90';
           let glowStyle = 'shadow-[0_0_20px_rgba(252,98,110,0.18)]';
@@ -67,7 +65,6 @@ export default function AlertsSidebar({
           let barBg = 'bg-gradient-to-r from-amber-400 via-rose-500 to-rose-600';
 
           if (alert.revisado) {
-            themeColor = 'reviewed';
             borderStyle = 'border-emerald-500/40 hover:border-emerald-400/70';
             bgStyle = 'bg-gradient-to-b from-[#0b1d1d]/90 to-[#0a1622]/90';
             glowStyle = 'shadow-[0_0_20px_rgba(65,197,155,0.12)]';
@@ -75,7 +72,6 @@ export default function AlertsSidebar({
             badgeBg = 'bg-[#41c59b]/20 text-[#41c59b] border-[#41c59b]/40';
             barBg = 'bg-emerald-500';
           } else if (alert.tipo_alerta === 'VIGILANCIA') {
-            themeColor = 'orange';
             borderStyle = 'border-amber-500/40 hover:border-amber-400/70';
             bgStyle = 'bg-gradient-to-b from-[#1f190e]/90 to-[#0c1825]/90';
             glowStyle = 'shadow-[0_0_20px_rgba(255,180,74,0.15)]';

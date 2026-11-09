@@ -1,0 +1,13 @@
+{
+  "name": "bigdata-alerta-climatica",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "npm --prefix web-dashboard run dev",
+    "build": "npm --prefix web-dashboard install && npm --prefix web-dashboard run build && node -e \"import('fs').then(fs => fs.cpSync('web-dashboard/dist', 'build', { recursive: true }))\"",
+    "preview": "npm --prefix web-dashboard run preview",
+    "lint": "npm --prefix web-dashboard run lint",
+    "test": "npm --prefix web-dashboard test"
+  }
+}

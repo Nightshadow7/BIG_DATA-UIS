@@ -1,15 +1,13 @@
-import React, { useEffect } from 'react';
+import { useEffect } from 'react';
 import { 
   X, 
   ShieldAlert, 
   CheckCircle2, 
-  Radio, 
   Volume2, 
   Users, 
   Building2, 
   Clock, 
-  MapPin, 
-  AlertTriangle 
+  MapPin
 } from 'lucide-react';
 
 export default function ProtocolModal({ 

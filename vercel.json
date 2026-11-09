@@ -1,0 +1,9 @@
+{
+  "framework": "vite",
+  "installCommand": "npm --prefix web-dashboard install",
+  "buildCommand": "npm --prefix web-dashboard run build",
+  "outputDirectory": "web-dashboard/dist",
+  "rewrites": [
+    { "source": "/(.*)", "destination": "/index.html" }
+  ]
+}

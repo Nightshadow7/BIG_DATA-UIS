@@ -1,15 +1,10 @@
-import React, { useState, useMemo } from 'react';
+import { useState, useMemo } from 'react';
 import { 
   Search, 
   Filter, 
   Radio, 
-  MapPin, 
   Database, 
-  ArrowUpDown, 
-  ChevronRight, 
-  ExternalLink,
-  Layers,
-  Sparkles
+  ArrowUpDown
 } from 'lucide-react';
 import { filterGoldStations } from '../lib/hydrologyRules';
 

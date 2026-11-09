@@ -1,9 +1,9 @@
 import { createClient } from '@supabase/supabase-js';
 import { DEFAULT_STATIONS, DEFAULT_ALERTS } from './defaultData.js';
 
-// Lectura de variables de entorno según requerimiento exacto
-const ENV_URL = import.meta.env.VITE_SUPABASE_URL;
-const ENV_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY;
+// Lectura de variables de entorno con respaldo de clave pública (anon/publishable) para despliegue en Vercel
+const ENV_URL = import.meta.env.VITE_SUPABASE_URL || 'https://kofaoizeukbugvseckbq.supabase.co';
+const ENV_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY || 'sb_publishable_d60Z7EQtdyW6llHX7B_vyw_8aTF96qt';
 
 // Soporte para configuración dinámica o local
 const STORED_URL = typeof window !== 'undefined' ? localStorage.getItem('ideam_supabase_url') : null;

@@ -1,4 +1,3 @@
-import React from 'react';
 import { 
   Activity, 
   RotateCw, 
@@ -58,7 +57,7 @@ export default function Navbar({
           <div className="hidden sm:flex items-center gap-2 px-3 py-1.5 rounded-lg bg-[#071624] border border-cyan-500/30 shadow-inner">
             <Radio className="w-3.5 h-3.5 text-cyan-400 animate-pulse" />
             <span className="font-mono text-cyan-300 tracking-wider text-[11px] font-semibold whitespace-nowrap">
-              SUPABASE REALTIME • KAFKA STREAM ACTIVE
+              {isLiveDb ? 'SUPABASE REALTIME • KAFKA STREAM ACTIVE' : 'LOCAL CONTINGENCY • KAFKA STREAM READY'}
             </span>
             <span className="relative flex h-2 w-2">
               <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-cyan-400 opacity-75"></span>

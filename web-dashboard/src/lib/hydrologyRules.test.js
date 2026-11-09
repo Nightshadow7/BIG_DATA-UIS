@@ -6,9 +6,7 @@ import {
   formatPrecipitation,
   filterGoldStations,
   calculateKpis,
-  StationData,
-  ActiveAlert,
-} from './hydrologyRules';
+} from './hydrologyRules.js';
 
 test('evaluateAlertStatus classifies precipitation exceeding P99 as ALERTA CRÍTICA', () => {
   const result = evaluateAlertStatus(130, 70, 110);
@@ -45,7 +43,7 @@ test('formatPrecipitation formats with mm unit', () => {
 });
 
 test('filterGoldStations filters by search text and hydrological zone', () => {
-  const mockStations: StationData[] = [
+  const mockStations = [
     {
       codigoestacion: '24015010',
       nombreestacion: 'BUCARAMANGA AEROPUERTO',
@@ -86,7 +84,7 @@ test('filterGoldStations filters by search text and hydrological zone', () => {
 });
 
 test('calculateKpis computes total stations, maximum P99, and alert distributions', () => {
-  const mockStations: StationData[] = [
+  const mockStations = [
     {
       codigoestacion: '1',
       nombreestacion: 'Estacion 1',
@@ -117,7 +115,7 @@ test('calculateKpis computes total stations, maximum P99, and alert distribution
     },
   ];
 
-  const mockAlerts: ActiveAlert[] = [
+  const mockAlerts = [
     {
       id: 1,
       zona_id: 'north',

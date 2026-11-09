@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import { useState, useEffect, useMemo, useCallback } from 'react';
 import Navbar from './components/Navbar';
 import AlertsSidebar from './components/AlertsSidebar';
 import GeospatialMap from './components/GeospatialMap';
@@ -18,8 +18,7 @@ import {
   Info, 
   Radio, 
   X, 
-  ShieldAlert,
-  Waves
+  ShieldAlert
 } from 'lucide-react';
 
 export default function App() {
@@ -46,31 +45,56 @@ export default function App() {
     setToasts((prev) => prev.filter((t) => t.id !== id));
   };
 
-  // Carga inicial de datos desde Supabase
+  // Consulta asíncrona pura a Supabase
+  const querySupabaseData = useCallback(async () => {
+    const [stationsRes, alertsRes] = await Promise.all([
+      supabase.from('umbrales_estaciones').select('*'),
+      supabase.from('alertas_activas').select('*'),
+    ]);
+    return {
+      stationsData: stationsRes.data,
+      alertsData: alertsRes.data,
+    };
+  }, []);
+
+  // Recarga manual desde botón de la interfaz
   const loadData = useCallback(async () => {
     setIsRefreshing(true);
     try {
-      // 1. Cargar umbrales_estaciones (Capa Oro Spark)
-      const stationsRes = await supabase.from('umbrales_estaciones').select('*');
-      if (stationsRes.data && stationsRes.data.length > 0) {
-        setStations(stationsRes.data);
+      const { stationsData, alertsData } = await querySupabaseData();
+      if (stationsData && stationsData.length > 0) {
+        setStations(stationsData);
       }
-
-      // 2. Cargar alertas_activas (Kafka Stream)
-      const alertsRes = await supabase.from('alertas_activas').select('*');
-      if (alertsRes.data && alertsRes.data.length > 0) {
-        setAlerts(alertsRes.data);
+      if (alertsData && alertsData.length > 0) {
+        setAlerts(alertsData);
       }
     } catch (err) {
       console.warn('[App loadData] Usando datos locales de contingencia:', err);
     } finally {
       setIsRefreshing(false);
     }
-  }, []);
+  }, [querySupabaseData]);
 
+  // Carga inicial al montar el componente
   useEffect(() => {
-    loadData();
-  }, [loadData]);
+    let cancelled = false;
+    querySupabaseData()
+      .then(({ stationsData, alertsData }) => {
+        if (cancelled) return;
+        if (stationsData && stationsData.length > 0) {
+          setStations(stationsData);
+        }
+        if (alertsData && alertsData.length > 0) {
+          setAlerts(alertsData);
+        }
+      })
+      .catch((err) => {
+        console.warn('[App init] Usando datos locales de contingencia:', err);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [querySupabaseData]);
 
   // Suscripción Realtime a Supabase Postgres Changes
   useEffect(() => {
