@@ -1,5 +1,9 @@
 # Sistema Predictivo de Alerta Temprana y Resiliencia Hidroclimática en Santander
 
+<p align="center">
+  <img src="Portada.jpeg" alt="Portada Proyecto Big Data" width="800">
+</p>
+
 Plataforma distribuida de Big Data (Arquitectura Híbrida Lambda + Medallón) para el modelado estadístico sobre 292 millones de registros históricos del IDEAM y la **predicción temprana de eventos extremos de precipitación (Horizonte T+3h)** en el departamento de Santander, Colombia.
 
 - **Demo Operativo en Vivo (Centro de Mando Web):** https://big-data-uis-5vob.vercel.app/
