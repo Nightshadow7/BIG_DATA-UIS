@@ -81,7 +81,7 @@ export default function GeospatialMap({
             }`}
           >
             <Radio className="w-3.5 h-3.5" />
-            <span>Radar de Lluvia</span>
+            <span>Radar Predictivo (T+3h)</span>
           </button>
 
           <button
@@ -164,11 +164,11 @@ export default function GeospatialMap({
       <div className="absolute bottom-4 right-4 z-20 pointer-events-none hidden sm:flex items-center gap-2 p-2 rounded-xl bg-[#081827]/85 backdrop-blur-md border border-cyan-500/30 text-[11px] font-mono shadow-lg">
         <div className="flex items-center gap-1.5 px-2 py-0.5 rounded bg-rose-950/80 border border-rose-500/40 text-rose-300">
           <span className="w-2 h-2 rounded-full bg-[#fc626e] animate-ping" />
-          <span>P99 Desbordamiento</span>
+          <span>P99 Predicción Crítica</span>
         </div>
         <div className="flex items-center gap-1.5 px-2 py-0.5 rounded bg-amber-950/80 border border-amber-500/40 text-amber-300">
           <span className="w-2 h-2 rounded-full bg-[#ffb44a]" />
-          <span>P90 Vigilancia</span>
+          <span>P90 Vigilancia T+3h</span>
         </div>
         <div className="flex items-center gap-1.5 px-2 py-0.5 rounded bg-cyan-950/80 border border-cyan-500/40 text-cyan-300">
           <span className="w-2 h-2 rounded-full bg-[#4bf1e5]" />
@@ -412,8 +412,16 @@ export default function GeospatialMap({
               <span className="text-cyan-300 font-semibold truncate block">{activeTooltipStation.zonahidrografica}</span>
             </div>
             <div className="p-2 rounded-xl bg-[#061421]/90 border border-slate-700/60">
-              <span className="text-[10px] text-slate-400 block">Coordenadas GPS</span>
-              <span className="text-slate-200">{activeTooltipStation.latitud.toFixed(4)}°N, {activeTooltipStation.longitud.toFixed(4)}°W</span>
+              <span className="text-[10px] text-slate-400 block">Coordenadas Geodésicas</span>
+              <a
+                href={`https://www.windy.com/${activeTooltipStation.latitud}/${activeTooltipStation.longitud}?rain,${activeTooltipStation.latitud},${activeTooltipStation.longitud},11`}
+                target="_blank"
+                rel="noreferrer"
+                className="text-cyan-300 hover:underline block"
+                title="Verificar radar satelital en vivo en Windy.com"
+              >
+                {activeTooltipStation.latitud.toFixed(4)}°N, {activeTooltipStation.longitud.toFixed(4)}°W
+              </a>
             </div>
             <div className="p-2 rounded-xl bg-[#061421]/90 border border-amber-500/30">
               <span className="text-[10px] text-amber-400 block">Umbral P90 (Vigilancia)</span>
@@ -425,19 +433,26 @@ export default function GeospatialMap({
             </div>
           </div>
 
-          {/* Estadísticas de la Capa Oro */}
+          {/* Estadísticas de la Capa Oro y Verificación Satelital */}
           <div className="flex items-center justify-between text-[11px] font-mono text-slate-400 border-t border-slate-800 pt-2 mb-3">
             <span>Lecturas Spark: <strong className="text-slate-200">{activeTooltipStation.total_lecturas.toLocaleString()}</strong></span>
-            <span>Histórico Máx: <strong className="text-cyan-300">{activeTooltipStation.precipitacion_maxima} mm</strong></span>
+            <a
+              href={`https://www.windy.com/${activeTooltipStation.latitud}/${activeTooltipStation.longitud}?rain,${activeTooltipStation.latitud},${activeTooltipStation.longitud},11`}
+              target="_blank"
+              rel="noreferrer"
+              className="text-cyan-300 hover:text-cyan-200 underline"
+            >
+              Ver Radar Windy
+            </a>
           </div>
 
-          {/* Botón rápido para Simular Pico Kafka */}
+          {/* Botón rápido para Proyectar Escenario Predictivo T+3h */}
           <button
             onClick={() => onSimulatePeak(activeTooltipStation.codigoestacion, true)}
             className="w-full py-2 px-3 rounded-xl bg-gradient-to-r from-rose-600/30 to-amber-600/30 hover:from-rose-600/40 hover:to-amber-600/40 border border-rose-500/50 text-white text-xs font-mono font-semibold transition-all flex items-center justify-center gap-2 shadow-lg active:scale-95"
           >
             <Radio className="w-3.5 h-3.5 text-rose-300 animate-pulse" />
-            <span>Simular Pico Kafka en esta Estación</span>
+            <span>Proyectar Escenario Predictivo (T+3h)</span>
           </button>
 
         </div>

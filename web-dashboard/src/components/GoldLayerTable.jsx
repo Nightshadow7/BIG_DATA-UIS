@@ -152,7 +152,7 @@ export default function GoldLayerTable({
                   <ArrowUpDown className="w-3 h-3" />
                 </button>
               </th>
-              <th className="py-3 px-4 text-center">Inyección Kafka</th>
+              <th className="py-3 px-4 text-center">Predicción T+3h (Kafka)</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-800/80">
@@ -184,10 +184,19 @@ export default function GoldLayerTable({
                     <div className="text-[11px] text-cyan-400/80">{station.zonahidrografica}</div>
                   </td>
 
-                  {/* GPS */}
+                  {/* GPS con enlace directo a Windy Radar */}
                   <td className="py-3 px-3 text-slate-400 text-[11px] tabular-nums">
-                    {station.latitud.toFixed(3)}°N <br />
-                    {station.longitud.toFixed(3)}°W
+                    <a
+                      href={`https://www.windy.com/${station.latitud}/${station.longitud}?rain,${station.latitud},${station.longitud},11`}
+                      target="_blank"
+                      rel="noreferrer"
+                      onClick={(e) => e.stopPropagation()}
+                      className="hover:text-cyan-300 hover:underline block"
+                      title="Verificar radar predictivo en Windy.com para estas coordenadas"
+                    >
+                      {station.latitud.toFixed(3)}°N <br />
+                      {station.longitud.toFixed(3)}°W
+                    </a>
                   </td>
 
                   {/* Total Lecturas Spark */}
@@ -219,7 +228,7 @@ export default function GoldLayerTable({
                     </span>
                   </td>
 
-                  {/* Botón Simular Pico Kafka */}
+                  {/* Botón Proyectar T+3h */}
                   <td className="py-3 px-4 text-center">
                     <button
                       type="button"
@@ -228,10 +237,10 @@ export default function GoldLayerTable({
                         onSimulatePeak(station.codigoestacion, true);
                       }}
                       className="inline-flex items-center gap-1.5 px-3 py-1 rounded-lg bg-gradient-to-r from-rose-600/25 to-amber-600/25 hover:from-rose-600/40 hover:to-amber-600/40 border border-rose-500/40 text-rose-200 hover:text-white text-[11px] font-mono font-semibold transition-all shadow-sm active:scale-95 whitespace-nowrap"
-                      title="Genera un evento en Apache Kafka superando el umbral P99 de esta estación"
+                      title="Consulta pronóstico Open-Meteo por latitud/longitud y proyecta escenario T+3h frente al P99 de esta estación"
                     >
                       <Radio className="w-3 h-3 text-rose-400 animate-pulse" />
-                      <span>Simular Pico Kafka</span>
+                      <span>Proyectar T+3h</span>
                     </button>
                   </td>
 
@@ -250,7 +259,7 @@ export default function GoldLayerTable({
 
       <div className="flex items-center justify-between text-[11px] font-mono text-slate-400 px-1">
         <span>Mostrando {filteredStations.length} de {stations.length} estaciones</span>
-        <span className="text-cyan-400">Spark Batch Window: 2000-2026 · Modelo Gamma Ajustado</span>
+        <span className="text-cyan-400">Spark Batch (2000-2026) + Pronóstico Satelital Open-Meteo (T+3h)</span>
       </div>
 
     </section>

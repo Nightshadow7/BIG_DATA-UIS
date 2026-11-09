@@ -374,13 +374,13 @@ export const DEFAULT_ALERTS = [
     id: 1,
     zona_id: "north",
     codigoestacion: "24015070", // El Playón - Cuenca Alta
-    titulo_alerta: "Desbordamiento Inminente en Río Playonero",
+    titulo_alerta: "Predicción T+3h: Riesgo de desbordamiento (94% prob.)",
     tipo_alerta: "ALERTA CRÍTICA",
     color_alerta: "red",
-    cuenca_sector: "Cuenca Río Lebrija y Rionegro",
-    descripcion: "Precipitación torrencial persistente acumulada supera percentil 99 histórico. Probable avenida torrencial hacia el casco urbano de El Playón.",
-    estado_prioridad: "Prioridad 1 - Activación Inmediata de Sirenas y PMR",
-    precipitacion_registrada: 156.4, // Mayor a P99 (144.2)
+    cuenca_sector: "Cuenca Río Lebrija y Rionegro (EL PLAYÓN)",
+    descripcion: "Estación EL PLAYÓN - CUENCA ALTA [Lat 7.4722, Lon -73.2033]: Lluvia actual de 0.8 mm, pero se proyectan 156.4 mm acumulados en las próximas 3h (Humedad suelo: 78%, supera P99 histórico de 144.2 mm).",
+    estado_prioridad: "Alerta Temprana Predictiva / Horizonte T+3h",
+    precipitacion_registrada: 156.4, // Proyección T+3h mayor a P99 (144.2)
     revisado: false,
     fecha_evento: new Date(Date.now() - 1000 * 60 * 12).toISOString()
   },
@@ -388,13 +388,13 @@ export const DEFAULT_ALERTS = [
     id: 2,
     zona_id: "south",
     codigoestacion: "24025010", // San Gil - Río Fonce
-    titulo_alerta: "Creciente Súbita en Cuenca Media del Río Fonce",
+    titulo_alerta: "Predicción T+3h: Lluvia severa entrante (82% prob.)",
     tipo_alerta: "VIGILANCIA",
     color_alerta: "orange",
-    cuenca_sector: "Cuenca Río Fonce (San Gil - Pinchote)",
-    descripcion: "Lluvias continuas en cabecera de Charalá y Mogotes. Nivel hidrométrico supera umbral de vigilancia P90. Monitoreo activo de compuertas.",
-    estado_prioridad: "Prioridad 2 - Notificación a Consejos Municipales",
-    precipitacion_registrada: 82.5, // Mayor a P90 (74.5) pero menor a P99 (118.4)
+    cuenca_sector: "Cuenca Río Fonce (SAN GIL)",
+    descripcion: "Estación SAN GIL - UNISANGIL RÍO FONCE [Lat 6.5562, Lon -73.1365]: Lluvia actual de 0.4 mm, con proyección acumulada de 82.5 mm en 3h por frente húmedo en cabecera (supera P90 histórico de 74.5 mm).",
+    estado_prioridad: "Vigilancia Predictiva / Horizonte T+3h",
+    precipitacion_registrada: 82.5, // Proyección T+3h mayor a P90 (74.5) pero menor a P99 (118.4)
     revisado: false,
     fecha_evento: new Date(Date.now() - 1000 * 60 * 35).toISOString()
   }

@@ -28,13 +28,13 @@ export default function AlertsSidebar({
           </div>
           <div>
             <h2 className="text-sm font-bold text-white tracking-wide flex items-center gap-2">
-              Alertas Hidroclimáticas
+              Alertas Predictivas (T+3h)
               <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-cyan-900/60 text-cyan-300 border border-cyan-500/30">
-                KAFKA BUS
+                KAFKA + OPEN-METEO
               </span>
             </h2>
             <p className="text-[11px] text-slate-400 font-mono">
-              Eventos en tiempo real por cuenca hidrográfica
+              Pronóstico anticipado por coordenada exacta
             </p>
           </div>
         </div>
@@ -119,7 +119,7 @@ export default function AlertsSidebar({
               </div>
 
               {/* Descripción de telemetría */}
-              <p className="text-xs text-slate-300 leading-relaxed mb-3 line-clamp-2">
+              <p className="text-xs text-slate-300 leading-relaxed mb-3 line-clamp-3">
                 {alert.descripcion}
               </p>
 
@@ -128,7 +128,7 @@ export default function AlertsSidebar({
                 <div className="flex items-center justify-between text-xs mb-1.5 font-mono">
                   <div className="flex items-center gap-1.5 text-slate-400">
                     <Waves className="w-3.5 h-3.5 text-cyan-400" />
-                    <span>Lluvia Registrada</span>
+                    <span>Proyección Acumulada (T+3h)</span>
                   </div>
                   <div className="font-bold text-white text-sm tabular-nums">
                     {currentRain} <span className="text-[10px] text-slate-400 font-normal">mm</span>
@@ -187,7 +187,7 @@ export default function AlertsSidebar({
                   }`}
                 >
                   <ShieldAlert className="w-3.5 h-3.5" />
-                  <span>{alert.revisado ? 'Ver Protocolo Atendido' : 'Protocolo de Emergencia'}</span>
+                  <span>{alert.revisado ? 'Ver Protocolo Atendido' : 'Protocolo Preventivo'}</span>
                 </button>
 
                 <div 
@@ -203,11 +203,11 @@ export default function AlertsSidebar({
         })}
       </div>
 
-      {/* Tarjeta Informativa del Pipeline IDEAM */}
+      {/* Tarjeta Informativa del Pipeline Predictivo */}
       <div className="glass-panel rounded-2xl p-3.5 border-cyan-500/20 text-xs text-slate-400 font-mono flex items-start gap-2.5">
         <Info className="w-4 h-4 text-cyan-400 shrink-0 mt-0.5" />
         <div className="leading-relaxed">
-          <span className="text-cyan-300 font-semibold">Capa Oro Spark:</span> Las alertas se evalúan dinámicamente frente a la distribución gamma de percentiles calculada sobre <span className="text-white font-bold">292M de lecturas</span> del IDEAM.
+          <span className="text-cyan-300 font-semibold">Modelo Predictivo T+3h:</span> Evalúa la suma de saturación antecedente + lluvia horaria proyectada por <span className="text-white font-bold">Open-Meteo API</span> frente a los umbrales P90/P99 de <span className="text-white font-bold">Apache Spark</span> antes de que ocurra la emergencia.
         </div>
       </div>
     </aside>

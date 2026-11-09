@@ -126,9 +126,9 @@ export default function App() {
             title: isReviewed 
               ? 'Protocolo Completado' 
               : isCritical 
-                ? '¡Pico Kafka Crítico Inyectado!' 
-                : 'Actualización Kafka en Vivo',
-            description: `${newAlert.titulo_alerta} (${newAlert.precipitacion_registrada} mm) · ${newAlert.cuenca_sector}`,
+                ? 'Predicción Crítica T+3h Detectada' 
+                : 'Vector Predictivo T+3h en Vivo',
+            description: `${newAlert.titulo_alerta} (${newAlert.precipitacion_registrada} mm proyectados) · ${newAlert.cuenca_sector}`,
             type: isReviewed ? 'success' : isCritical ? 'danger' : 'warning',
             zona: newAlert.zona_id,
           });
@@ -159,7 +159,7 @@ export default function App() {
     }
   };
 
-  // Simulación de Pico Kafka
+  // Proyección Predictiva T+3h (Open-Meteo + Kafka)
   const handleSimulatePeak = async (stationCode, forceP99 = true) => {
     const station = stations.find((s) => s.codigoestacion === stationCode);
     if (!station) return;
@@ -170,8 +170,8 @@ export default function App() {
         setSelectedStation(station);
         setSelectedAlertId(result.alertId);
         addToast({
-          title: 'Mensaje Kafka Inyectado',
-          description: `Estación ${station.nombreestacion} alcanzó ${result.payload.precipitacion_registrada} mm superando ${forceP99 ? 'P99' : 'P90'}.`,
+          title: 'Vector Predictivo T+3h Calculado',
+          description: `Estación ${station.nombreestacion} [Lat ${station.latitud.toFixed(3)}, Lon ${station.longitud.toFixed(3)}] proyecta ${result.payload.precipitacion_registrada} mm en 3h superando ${forceP99 ? 'P99' : 'P90'}.`,
           type: forceP99 ? 'danger' : 'warning',
           zona: result.payload.zona_id,
         });
@@ -197,7 +197,7 @@ export default function App() {
       setActiveProtocolAlert(null);
       addToast({
         title: 'Escenario Marcado como Revisado',
-        description: 'Se registró la verificación en Supabase y se cerró la fase crítica.',
+        description: 'Se registró la verificación preventiva en Supabase y se cerró la fase crítica.',
         type: 'success',
       });
     } catch (err) {
@@ -212,8 +212,8 @@ export default function App() {
     const res = resetDefaultAlerts();
     setAlerts(res);
     addToast({
-      title: 'Alertas Restablecidas',
-      description: 'Se reiniciaron los escenarios de alerta iniciales del sistema.',
+      title: 'Pronósticos Restablecidos',
+      description: 'Se reiniciaron los escenarios predictivos T+3h iniciales del sistema.',
       type: 'info',
     });
   };
@@ -233,7 +233,7 @@ export default function App() {
       {/* 2. Cuerpo Principal del Centro de Mando */}
       <main className="flex-1 w-full max-w-[1600px] mx-auto p-4 sm:p-6 lg:p-8 flex flex-col gap-6">
         
-        {/* Banner Superior de Estado de Misión Crítica */}
+        {/* Banner Superior de Estado de Misión Crítica Predictiva */}
         <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-3 p-4 rounded-2xl bg-gradient-to-r from-[#0c2336]/90 via-[#0a1b2a]/90 to-[#081522]/90 border border-cyan-500/25 shadow-xl">
           <div className="flex items-center gap-3">
             <div className="p-2 rounded-xl bg-cyan-500/20 text-cyan-300 border border-cyan-400/30">
@@ -242,22 +242,22 @@ export default function App() {
             <div>
               <div className="flex items-center gap-2">
                 <span className="text-xs font-mono font-bold tracking-wider text-cyan-300 uppercase">
-                  SISTEMA DE ALERTA TEMPRANA Y RESILIENCIA
+                  SISTEMA PREDICTIVO DE ALERTA TEMPRANA · HORIZONTE T+3H Y T+6H
                 </span>
                 <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-emerald-950/80 text-emerald-400 border border-emerald-500/40">
-                  RED OPERATIVA
+                  OPEN-METEO + SPARK P90/P99
                 </span>
               </div>
               <p className="text-xs text-slate-300">
-                Monitoreo continuo de 26 estaciones pluviométricas del IDEAM en cuencas de Santander conectadas a Supabase Realtime y Apache Kafka.
+                Predicción anticipada de desbordamientos combinando saturación antecedente (Apache Spark) con pronóstico satelital horario por coordenadas GPS exactas (Open-Meteo API + Apache Kafka).
               </p>
             </div>
           </div>
 
           <div className="flex items-center gap-2 text-xs font-mono text-slate-400">
-            <span>Latencia Bus: <strong className="text-cyan-300">14 ms</strong></span>
+            <span>Horizonte: <strong className="text-cyan-300">T+3h / T+6h</strong></span>
             <span>·</span>
-            <span>Micro-batch: <strong className="text-slate-200">500ms</strong></span>
+            <span>Inferencia Kafka: <strong className="text-slate-200">14 ms</strong></span>
           </div>
         </div>
 

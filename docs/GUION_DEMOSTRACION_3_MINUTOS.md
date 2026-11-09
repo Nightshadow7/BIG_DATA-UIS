@@ -1,6 +1,6 @@
-# Guion de Demostracion Funcional en Vivo (180 Segundos)
+# Guion de Demostracion Funcional en Vivo (180 Segundos — Enfoque Predictivo T+3h)
 
-**Proyecto:** Sistema de Alerta Temprana y Resiliencia Hidroclimatica en Santander
+**Proyecto:** Sistema Predictivo de Alerta Temprana y Resiliencia Hidroclimatica en Santander
 **Autores:** Anthoni Lexandre Hernandez (2191198), Andres Santiago Marin, Angie Nicol Boada, Laura Valentina Ortiz
 **Duracion objetivo:** 3 minutos exactos (180 segundos)
 **URL en vivo:** [https://big-data-uis-5vob.vercel.app/](https://big-data-uis-5vob.vercel.app/)
@@ -9,46 +9,47 @@
 
 ## Preparacion previa antes de iniciar la grabacion o sustentacion
 
-Antes de comenzar a correr el cronometro, deja abiertas estas cuatro pestanas o ventanas listas para alternar sin tiempos muertos:
+Deja listas estas cuatro pestanas antes de empezar a correr el tiempo:
 
-1. **Terminal dividida en dos paneles** ubicada en la raiz del repositorio:
-   - Panel izquierdo con `docker compose ps` ya impreso en pantalla y el comando del consumidor listo para ejecutar: `python src/streaming/kafka_consumer.py`
-   - Panel derecho con el comando del productor listo para ejecutar: `python src/streaming/kafka_producer.py`
-2. **Navegador — Pestana 1 (Consola Web de MinIO):** `http://localhost:9001/browser` con sesion iniciada (`admin` / `minioadmin123`), mostrando los tres buckets: `bronce`, `plata` y `oro`.
-3. **Navegador — Pestana 2 (Centro de Mando en Vercel):** `https://big-data-uis-5vob.vercel.app/` cargado en vista completa.
-
----
-
-## Minuto 1 (0:00 a 1:00) — Infraestructura Docker y Arquitectura Medallon en MinIO
-
-**En pantalla (0:00 - 0:25):** Muestra la terminal con `docker compose ps` y el archivo `compose.yaml`.
-**Que decir:**
-> "Buenas tardes. Presentamos nuestro sistema de alerta temprana hidroclimatica para Santander. Toda la infraestructura corre sobre contenedores Docker orquestados desde la raiz del proyecto: tenemos un nodo de almacenamiento compatible con Amazon S3 en MinIO, un broker Apache Kafka en modo KRaft sin dependencia de Zookeeper, nuestro contenedor de procesamiento distribuido con PySpark 3.5 y el cliente web en React."
-
-**En pantalla (0:25 - 1:00):** Cambia a la Pestana 1 del navegador (`http://localhost:9001`). Haz clic rapidamente en el bucket `bronce`, luego en `plata` mostrando las carpetas `departamento=SANTANDER/anio=...`, y finalmente en `oro`.
-**Que decir:**
-> "En el Data Lake implementamos la arquitectura Medallon. En el bucket bronce almacenamos el archivo crudo descargado desde la API de Datos Abiertos del IDEAM con registros desde el ano 2000. Con el job de PySpark `bronze_to_silver.py`, depuramos lecturas invalidas y guardamos en el bucket plata en formato columnar Apache Parquet, particionado fisicamente por departamento y ano. Luego, `silver_to_gold.py` calcula con Spark SQL los percentiles 90 y 99 historicos para las 26 estaciones de Santander —como Puerto Wilches con un umbral critico P99 de 26.8 milimetros o la estacion UIS en Bucaramanga con 11 milimetros— y sincroniza este catalogo en el bucket oro y en Supabase."
+1. **Terminal dividida en dos paneles** en la raiz del repositorio:
+   - Panel izquierdo con el consumidor predictivo listo: `docker compose run --rm spark-processor python src/streaming/kafka_consumer.py`
+   - Panel derecho con el productor predictivo listo: `docker compose run --rm spark-processor python src/streaming/kafka_producer.py`
+2. **Navegador — Pestana 1 (Consola Web de MinIO):** `http://localhost:9001/browser` mostrando los buckets `bronce`, `plata` y `oro`.
+3. **Navegador — Pestana 2 (Centro de Mando Predictivo en Vercel):** `https://big-data-uis-5vob.vercel.app/` cargado en pantalla completa.
+4. **Navegador — Pestana 3 (Verificador Satelital Windy / GeoJSON.io):** `https://www.windy.com/7.1997/-72.9692?rain,7.1997,-72.9692,10` (o lista para abrirse desde el enlace directo de cualquier estacion en el dashboard).
 
 ---
 
-## Minuto 2 (1:00 a 2:00) — Procesamiento en Tiempo Real con Apache Kafka
+## Minuto 1 (0:00 a 1:00) — Enfoque Predictivo y Linea Base Historica en MinIO + PySpark
 
-**En pantalla (1:00 - 1:30):** Vuelve a la terminal dividida. En el panel izquierdo ejecuta `python src/streaming/kafka_consumer.py` y en el panel derecho ejecuta `python src/streaming/kafka_producer.py`.
+**En pantalla (0:00 - 0:25):** Muestra brevemente los contenedores activos en terminal (`docker compose ps`) y pasa a la consola de MinIO (`http://localhost:9001`).
 **Que decir:**
-> "Para el monitoreo en tiempo real implementamos una capa de streaming sobre Apache Kafka utilizando el topic `telemetria-precipitacion`. A la derecha, el productor simula la llegada de lecturas pluviometricas de estaciones reales del IDEAM en Santander, usando el codigo de la estacion como llave de particionamiento para garantizar el orden cronologico de cada sensor."
+> "Buenas tardes. Un sistema de alerta temprana no puede limitarse a informar que esta lloviendo cuando la emergencia ya ocurrio. Por eso disenamos un sistema predictivo con horizonte de anticipacion de tres a seis horas para las 26 estaciones del IDEAM en Santander, desplegado sobre Docker con MinIO S3, Apache Spark y Apache Kafka en modo KRaft."
 
-**En pantalla (1:30 - 2:00):** Senala en el panel izquierdo como el consumidor imprime en consola la evaluacion de cada mensaje (`ROJA`, `NARANJA` o `NORMAL`) junto con su particion y offset.
+**En pantalla (0:25 - 1:00):** Recorre en MinIO los buckets `bronce`, `plata` (mostrando el particionamiento `departamento=SANTANDER/anio=...`) y `oro`.
 **Que decir:**
-> "A la izquierda, el consumidor del grupo `centro-mando-hidroclimatico` descarga al iniciar los umbrales P90 y P99 desde la capa Oro y evalua cada evento en milisegundos. Cuando una lectura supera el percentil 90 declara alerta naranja de vigilancia, y si alcanza el percentil 99 dispara alerta roja por riesgo de desbordamiento, actualizando inmediatamente el estado de la estacion en PostgreSQL y emitiendo el evento por WebSockets."
+> "Para saber cuanta agua soporta cada microcuenca antes de desbordarse, primero construimos la memoria historica en nuestra arquitectura Medallon. En el bucket bronce ingerimos los registros del IDEAM desde el ano 2000 cruzados con las coordenadas geodesicas oficiales del Catalogo Nacional de Estaciones. Con PySpark limpiamos y particionamos en Parquet dentro del bucket plata, y en el bucket oro calculamos los percentiles 90 y 99 historicos de cada estacion. Asi sabemos, por ejemplo, que la estacion La Ceiba en Socorro entra en riesgo critico a los 18.8 milimetros y la estacion Tona a los 4.2 milimetros."
 
 ---
 
-## Minuto 3 (2:00 a 3:00) — Centro de Mando Web en Vercel y Protocolo de Respuesta
+## Minuto 2 (1:00 a 2:00) — Prediccion en Tiempo Real a T+3h (Open-Meteo API + Apache Kafka)
 
-**En pantalla (2:00 - 2:35):** Cambia a la Pestana 2 del navegador (`https://big-data-uis-5vob.vercel.app/`). Muestra los indicadores superiores, el panel izquierdo de alertas activas y haz clic sobre una estacion en el mapa interactivo de Santander.
+**En pantalla (1:00 - 1:30):** Cambia a la terminal dividida y ejecuta el productor a la derecha y el consumidor a la izquierda.
 **Que decir:**
-> "Finalmente, aqui vemos el Centro de Mando desplegado en produccion sobre Vercel. Sin necesidad de recargar la pagina, la interfaz recibe por Supabase Realtime las alertas que acaba de procesar Kafka, o permite ejecutar una simulacion directa con el boton de inyeccion de lluvia. En el mapa geoespacial vemos las 26 estaciones de Santander coloreadas segun su nivel de riesgo actual y, en la parte inferior, la tabla completa de la capa Oro con sus umbrales P90 y P99."
+> "Aqui ocurre la prediccion en tiempo real. A la derecha, nuestro productor de Kafka toma la latitud y longitud exactas de cada estacion del IDEAM y consulta la API satelital Open-Meteo para obtener la precipitacion proyectada en las proximas tres horas, la probabilidad de lluvia y la humedad superficial del suelo."
 
-**En pantalla (2:35 - 3:00):** Haz clic en el boton **Desplegar Protocolo** en la barra superior para abrir el modal de actuacion de la UNGRD, selecciona una estacion en alerta y muestra la lista de verificacion y el despacho de alerta comunitaria.
+**En pantalla (1:30 - 2:00):** Senala en la consola del consumidor una linea de `ALERTA CRITICA` donde `Actual` sea baja (ej. `0.28 mm` o `1.65 mm`) pero `Prediccion T+3h` supere el umbral `P99`.
 **Que decir:**
-> "Cuando una estacion entra en estado critico, el operador abre desde aqui el protocolo de actuacion alineado con la Unidad Nacional para la Gestion del Riesgo de Desastres, verifica los pasos operativos para esa estacion y registra el despacho de la alerta temprana. Con esto demostramos el flujo completo de extremo a extremo, desde la ingesta cruda del IDEAM hasta la toma de decisiones en tiempo real. Muchas gracias."
+> "Observen la salida del consumidor a la izquierda: en estaciones como Tona o Socorro la lluvia actual en este instante es menor a dos milimetros —es decir, todavia no se ha desbordado el rio—, pero al sumar la saturacion antecedente de la cuenca con el frente de lluvia que entrara en las proximas tres horas, el modelo proyecta que se superara el percentil 99 historico y publica de inmediato la alerta temprana en Supabase Realtime para evacuar con tres horas de anticipacion."
+
+---
+
+## Minuto 3 (2:00 a 3:00) — Centro de Mando en Vercel, Verificacion en Windy y Protocolo Preventivo
+
+**En pantalla (2:00 - 2:35):** Pasa a la Pestana 2 (`https://big-data-uis-5vob.vercel.app/`). Senala el panel izquierdo de **Alertas Predictivas (T+3h)**, haz clic sobre una estacion en el mapa de Santander, muestra el enlace de coordenadas hacia **Windy.com** y pulsa **Proyectar Escenario Predictivo (T+3h)**.
+**Que decir:**
+> "En nuestro Centro de Mando desplegado en Vercel vemos las alertas predictivas recibidas por WebSockets sin recargar la pagina. Cada tarjeta muestra que la lluvia actual es baja pero la proyeccion acumulada a tres horas supera el umbral P90 o P99, junto con la humedad del suelo y la probabilidad de lluvia. Ademas, al seleccionar cualquier estacion en el mapa o en la tabla inferior, podemos abrir con un clic su coordenada exacta en el radar satelital de Windy.com para contrastar visualmente el frente nuboso, o proyectar en vivo el pronostico de Open-Meteo para esa estacion."
+
+**En pantalla (2:35 - 3:00):** Haz clic en **Protocolo Preventivo** sobre la alerta critica y pulsa confirmar verificacion.
+**Que decir:**
+> "Finalmente, con tres horas de margen antes del pico de escorrentia, el operador activa el protocolo preventivo de la UNGRD, coordina el preaviso comunitario y registra la atencion del escenario en PostgreSQL. Con esto pasamos de un monitoreo pasivo a un sistema predictivo real de prevencion de desastres. Muchas gracias."
