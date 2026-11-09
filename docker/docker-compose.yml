@@ -62,6 +62,8 @@ services:
       MINIO_ENDPOINT: http://minio:9000
       MINIO_ROOT_USER: ${MINIO_ROOT_USER:-admin}
       MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-minioadmin123}
+      SUPABASE_URL: ${SUPABASE_URL:-}
+      SUPABASE_KEY: ${SUPABASE_KEY:-}
     volumes:
       - ../:/app
     profiles:
