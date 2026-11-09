@@ -147,3 +147,21 @@ vite.config.ts.timestamp-*
 
 # Turbo Repo
 .turbo
+
+# Datos masivos locales y volúmenes de Docker
+data/full_dataset/
+docker/volumes/
+*.csv
+*.parquet
+
+# Permitir explícitamente las muestras exigidas por la rúbrica (20-100 registros)
+!data/raw_sample/*.csv
+!data/raw_sample/*.parquet
+!data/processed_sample/*.csv
+!data/processed_sample/*.parquet
+
+# Entornos virtuales y secretos
+venv/
+.venv/
+__pycache__/
+.env
