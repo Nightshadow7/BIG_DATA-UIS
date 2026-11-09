@@ -1,0 +1,6 @@
+{
+  "name": "Centro de Mando Hidroclimático y Resiliencia en Santander",
+  "description": "Centro de mando hidroclimático de misión crítica para Santander (IDEAM Big Data Pipeline), con monitoreo de cuencas en tiempo real vía Supabase y Kafka, capas de radar y relieve, y gestión de alertas tempranas.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

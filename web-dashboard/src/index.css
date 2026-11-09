@@ -1,0 +1,14 @@
+@import "tailwindcss";
+
+@layer base {
+  body {
+    background-color: #030b14;
+    background-image: 
+      radial-gradient(circle at 15% 15%, rgba(21, 204, 227, 0.08) 0%, transparent 45%),
+      radial-gradient(circle at 85% 80%, rgba(41, 198, 150, 0.07) 0%, transparent 45%);
+    color: #edfaff;
+    font-family: 'Inter', system-ui, -apple-system, sans-serif;
+    min-height: 100vh;
+    margin: 0;
+  }
+}
